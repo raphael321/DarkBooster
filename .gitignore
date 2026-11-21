@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+*.pyc
+*.log
+step.log
+crash.log
+debug_err.txt
+wv_test.log
