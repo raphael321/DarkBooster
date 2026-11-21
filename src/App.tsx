@@ -182,6 +182,8 @@ declare global {
         toggle_maximize?: () => Promise<void>;
         close_to_tray?: () => Promise<void>;
         pick_folder?: () => Promise<string | null>;
+        start_drag?: () => Promise<void>;
+        start_resize?: (hitTest: number) => Promise<void>;
       };
     };
   }
@@ -873,8 +875,52 @@ export default function App() {
         </div>
       )}
 
-      {/* NATIVE DESKTOP APP WINDOW TITLEBAR (DRAGGABLE VIA PYWEBVIEW) */}
-      <div className="pywebview-drag-region relative z-30 flex h-10 w-full items-center justify-between border-b border-white/10 bg-[#070605]/90 px-4 backdrop-blur-md select-none">
+      {/* NATIVE WIN32 BORDER & CORNER RESIZE HANDLES FOR FRAMELESS WINDOW */}
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(12)}
+        className="fixed top-0 left-3 right-3 h-1.5 z-50 cursor-ns-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(15)}
+        className="fixed bottom-0 left-3 right-3 h-1.5 z-50 cursor-ns-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(10)}
+        className="fixed top-3 bottom-3 left-0 w-1.5 z-50 cursor-ew-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(11)}
+        className="fixed top-3 bottom-3 right-0 w-1.5 z-50 cursor-ew-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(13)}
+        className="fixed top-0 left-0 w-3 h-3 z-50 cursor-nwse-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(14)}
+        className="fixed top-0 right-0 w-3 h-3 z-50 cursor-nesw-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(16)}
+        className="fixed bottom-0 left-0 w-3 h-3 z-50 cursor-nesw-resize"
+      />
+      <div
+        onMouseDown={() => window.pywebview?.api?.start_resize?.(17)}
+        className="fixed bottom-0 right-0 w-3 h-3 z-50 cursor-nwse-resize"
+      />
+
+      {/* NATIVE DESKTOP APP WINDOW TITLEBAR (DRAGGABLE VIA WIN32 HTCAPTION) */}
+      <div
+        onMouseDown={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          window.pywebview?.api?.start_drag?.();
+        }}
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          handleNativeMaximize();
+        }}
+        className="pywebview-drag-region relative z-30 flex h-10 w-full items-center justify-between border-b border-white/10 bg-[#070605]/90 px-4 backdrop-blur-md select-none cursor-grab active:cursor-grabbing"
+      >
         <div className="flex items-center gap-2.5">
           <div className="flex h-5 w-5 items-center justify-center rounded-md bg-[#ff5f00] text-black">
             <Zap className="h-3.5 w-3.5 fill-black" />

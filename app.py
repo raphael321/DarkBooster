@@ -297,6 +297,28 @@ def run_native_webview_window():
                 return res[0]
             return None
 
+        def start_drag(self):
+            if not self._win:
+                return
+            try:
+                hwnd = int(self._win.native.Handle.ToInt64())
+                user32 = ctypes.windll.user32
+                user32.ReleaseCapture()
+                user32.PostMessageW(hwnd, 0x00A1, 2, 0)
+            except Exception:
+                pass
+
+        def start_resize(self, hit_test: int):
+            if not self._win:
+                return
+            try:
+                hwnd = int(self._win.native.Handle.ToInt64())
+                user32 = ctypes.windll.user32
+                user32.ReleaseCapture()
+                user32.PostMessageW(hwnd, 0x00A1, int(hit_test), 0)
+            except Exception:
+                pass
+
     api = NativeDesktopApi()
     win = webview.create_window(
         NATIVE_WIN_TITLE,
@@ -306,7 +328,7 @@ def run_native_webview_window():
         height=850,
         min_size=(1020, 680),
         background_color="#0a0908",
-        frameless=False,
+        frameless=True,
         easy_drag=False,
         resizable=True,
     )
