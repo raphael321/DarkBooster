@@ -67,6 +67,52 @@ O motor de varredura (`core_scanner.py`) mapeia em tempo real:
 5. **Seletor Nativo `➕ Adicionar Pasta do PC`:**
    - Guarda projetos de outros canais em outro HD, SSD ou pasta na Área de Trabalho? Basta clicar em **`➕ Adicionar Pasta do PC`** para abrir o seletor nativo do Windows e incluir novas pastas no radar do **Meus Canais**.
 
+### 🔍 Caçador de Arquivos Duplicados (`> 10 MB`), Filtro de Episódios Antigos (`+15 dias`) & Render Accelerator
+
+<p align="center">
+  <img src="./assets/duplicate-hunter-old-filter-preview.png" alt="Caçador de Duplicados, Filtro +15 Dias e Render Accelerator" width="100%" />
+</p>
+
+- **🔍 Caçador de Vídeos, B-Rolls e Áudios Duplicados (`> 10 MB`):**
+  - Compara a assinatura digital (`Hash Blake2b`) em 3 estágios ultrarrápidos entre todas as pastas dos seus canais Dark, `Downloads`, `Videos` e `Music`.
+  - Encontra trilhas sonoras, efeitos (SFX), B-rolls e `.zip` repetidos, **protege automaticamente 1 cópia original** (`🛡️ Original mantido`) e permite apagar todas as cópias extras com 1 clique.
+- **⏳ Filtro e Etiqueta de Projetos/Episódios Antigos (`+15 dias`):**
+  - Destaca automaticamente pastas e episódios sem edição há mais de 15 dias com o selo **`⏳ +X dias`** e oferece os botões **`⏳ Filtrar Antigos (+15d)`** e **`⏳ Marcar Antigos (+15d)`** para limpar vídeos antigos que já foram publicados.
+- **🎬 Render Accelerator (Auto-Prioridade de CPU para Renderização):**
+  - Quando detecta `ffmpeg.exe`, `Remotion`, `Premiere`, `After Effects`, `CapCut` ou `Blender` renderizando, eleva automaticamente o processo de render para **Prioridade Alta (`HIGH_PRIORITY_CLASS`)** e reduz navegadores em segundo plano (`opera.exe`, `chrome.exe`, `discord.exe`) para `Abaixo do Normal`, acelerando a exportação e restaurando tudo ao normal assim que o render termina.
+
+---
+
+## 🎮 Suite `PC & Gamer` — 5 Módulos de Otimização Geral do Windows
+
+<p align="center">
+  <img src="./assets/pc-gamer-suite-preview.png" alt="Aba PC & Gamer do DarkBooster" width="100%" />
+</p>
+
+Além do fluxo para criadores Dark, o **DarkBooster** conta com a aba **`🎮 PC & Gamer`** com 5 ferramentas de desempenho geral para Windows 10/11 e Notebooks Gamer:
+
+1. **🎮 Modo Gamer (FPS & Ping Booster):**
+   - Com 1 clique antes de jogar (`Valorant`, `CS2`, `Roblox`, `GTA V`, `Fortnite`, `Apex`, `Minecraft`):
+     - Coloca o jogo ativo em **Prioridade Alta de CPU** e reduz apps de fundo;
+     - Limpa a memória RAM ociosa em `< 1,5s` (`EmptyWorkingSet`);
+     - Desativa a gravação em 2º plano do **Xbox Game DVR** (liberando o encoder NVENC da placa de vídeo);
+     - Ativa o plano de energia de **Desempenho Máximo** e limpa o cache de DNS (`ipconfig /flushdns`).
+2. **🚀 Gerenciador Visual de Inicialização do Windows (`Startup Manager`):**
+   - Lista todos os programas que iniciam sozinhos com o Windows (`HKCU\...\Run` e Pasta de Inicialização).
+   - Permite ativar ou desativar qualquer aplicativo com 1 clique (**`🟢 Ativo`** / **`⚪ Desativado`**) fazendo backup reversível da chave original no Registro (`HKCU\Software\DarkBooster\DisabledStartup`).
+3. **🌐 Otimizador de Rede, Benchmark de DNS & Ping Test em Tempo Real:**
+   - Testa ao vivo a latência (`ms`) da sua conexão para **Cloudflare (`1.1.1.1`)**, **Google (`8.8.8.8`)**, **Quad9 (`9.9.9.9`)** e **OpenDNS (`208.67.222.222`)**.
+   - Destaca o servidor **`🏆 MAIS RÁPIDO`** no momento e aplica o DNS escolhido na placa de rede com 1 clique, além de oferecer **`🧹 Flush DNS`** e **`🔄 Restaurar Automático (DHCP)`**.
+4. **🧹 Debloater Seguro & Anti-Telemetria do Windows 11:**
+   - 5 otimizações seguras e reversíveis (individuais ou via botão **`🚀 Otimizar Todos`**):
+     - Desativar Gravação Xbox Game DVR em 2º Plano;
+     - Desativar Widgets & Notícias Pesadas da Barra de Tarefas (economiza ~250 MB de RAM do `Widgets.exe`);
+     - Desativar Busca Web do Bing no Menu Iniciar (abre o Menu Iniciar instantaneamente);
+     - Bloquear ID de Anúncios e Sugestões Patrocinadas da Microsoft;
+     - Resposta Instantânea de Menus (`MenuShowDelay = 10ms`).
+5. **🔋 Saúde da Bateria & Controle Térmico do Notebook:**
+   - Calcula o **desgaste real da bateria via WMI** (`Capacidade Atual vs. Capacidade de Fábrica em %`), mostra status de tomada/bateria, temperatura da GPU (`°C`) e permite alternar em 1 clique entre **`❄️ Frio / Silêncio`**, **`⚖️ Equilibrado`** e **`🔥 Turbo Tomada`**.
+
 ---
 
 ## ⚡ Otimização de Hardware: `SSD • RAM • GPU`
