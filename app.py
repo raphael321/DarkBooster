@@ -101,32 +101,10 @@ def is_port_in_use(port: int = PORT) -> bool:
         return s.connect_ex((HOST, port)) == 0
 
 
-def close_any_legacy_browser_app_windows():
-    """Closes any old Chrome/Edge --app window from previous session so only the native desktop window remains."""
-    user32 = ctypes.windll.user32
-    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-
-    def enum_cb(hwnd, lparam):
-        if user32.IsWindowVisible(hwnd):
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length > 0:
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value
-                if "DarkStudio Optimizer & Guard — Controle Visual" in title:
-                    user32.PostMessageW(hwnd, 0x0010, 0, 0)
-        return True
-
-    try:
-        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-    except Exception:
-        pass
-
-
 def focus_existing_app_window() -> bool:
     """
-    Searches for an already open native DarkStudio desktop window via Win32 EnumWindows.
-    If found, restores it and brings it to the front instead of opening a second window.
+    Searches ONLY for our own Python native DarkBooster desktop window via Win32 EnumWindows.
+    Never touches or closes any browser or external window.
     """
     user32 = ctypes.windll.user32
     found_hwnds = []
@@ -140,20 +118,21 @@ def focus_existing_app_window() -> bool:
                 buf = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buf, length + 1)
                 title = buf.value
-                if NATIVE_WIN_TITLE in title or "DarkBooster" in title or "DarkStudio" in title:
-                    found_hwnds.append(hwnd)
+                if title == NATIVE_WIN_TITLE:
+                    pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    try:
+                        pname = psutil.Process(pid.value).name().lower()
+                        if pname in ("python.exe", "pythonw.exe"):
+                            found_hwnds.append(hwnd)
+                    except Exception:
+                        pass
         return True
 
     try:
         user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
         if found_hwnds:
             hwnd = found_hwnds[0]
-            WM_CLOSE = 0x0010
-            for extra_hwnd in found_hwnds[1:]:
-                try:
-                    user32.PostMessageW(extra_hwnd, WM_CLOSE, 0, 0)
-                except Exception:
-                    pass
             SW_RESTORE = 9
             SW_SHOW = 5
             if user32.IsIconic(hwnd):
@@ -172,11 +151,9 @@ def open_native_app_window():
     """
     Brings the existing native window to the front if already open;
     otherwise spawns our native pywebview Desktop Window child process.
-    When that window is closed, its child process exits completely, freeing 100% of GUI RAM!
     """
     global _last_window_launch_time
     with _open_window_lock:
-        close_any_legacy_browser_app_windows()
         if focus_existing_app_window():
             return
 

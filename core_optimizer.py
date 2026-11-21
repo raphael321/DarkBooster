@@ -236,8 +236,8 @@ def kill_process_group(pids: list[int]) -> tuple[int, int]:
 
 def kill_orphan_render_workers() -> tuple[int, float]:
     """
-    Finds and terminates stuck headless Chrome / Playwright / Remotion / FFmpeg processes
-    left over from interrupted video generations.
+    Finds and terminates stuck headless Chrome / Playwright / Remotion workers
+    left over from interrupted video generations. Never touches the user's normal browser!
     """
     pids = []
     for proc in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -246,11 +246,12 @@ def kill_orphan_render_workers() -> tuple[int, float]:
             cmd = " ".join(proc.info.get("cmdline") or []).lower()
             if name == "chrome-headless-shell.exe":
                 pids.append(proc.info["pid"])
-            elif name in ("chrome.exe", "node.exe") and (
-                "--headless" in cmd
-                or "puppeteer_dev_chrome_profile" in cmd
-                or "ms-playwright" in cmd
-                or "remotion" in cmd
+            elif name == "chrome.exe" and (
+                "puppeteer_dev_chrome_profile" in cmd or "ms-playwright" in cmd
+            ):
+                pids.append(proc.info["pid"])
+            elif name == "node.exe" and (
+                "puppeteer_dev_chrome_profile" in cmd or "remotion" in cmd
             ):
                 pids.append(proc.info["pid"])
         except (psutil.NoSuchProcess, psutil.AccessDenied):
