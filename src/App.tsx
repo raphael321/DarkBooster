@@ -109,6 +109,8 @@ interface BatteryThermalStatus {
   full_mwh: number;
   gpu_temp_c: number;
   active_mode: "cool" | "balanced" | "turbo";
+  fan_mode?: "auto" | "max" | "custom";
+  fan_speed?: number;
 }
 
 interface RamProcess {
@@ -316,6 +318,7 @@ export default function App() {
   const [dnsLoading, setDnsLoading] = useState(false);
   const [batteryThermal, setBatteryThermal] = useState<BatteryThermalStatus | null>(null);
   const [gamerModeActive, setGamerModeActive] = useState(false);
+  const [customFanSpeed, setCustomFanSpeed] = useState(75);
 
   // Duplicate Finder Modal State
   const [dupModalOpen, setDupModalOpen] = useState(false);
@@ -1777,6 +1780,92 @@ export default function App() {
                   >
                     🔥 Turbo Tomada
                   </button>
+                </div>
+
+                {/* Acer NitroSense Direct Fan Control (Auto / Custom % / 100% Max) */}
+                <div className="pt-2 border-t border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase text-[#ff9253]">
+                      🌪️ Ventoinhas Acer NitroSense (CPU & RTX 4050)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handlePcToolAction({ kind: "set_fan_mode", fan_mode: "open_app" })}
+                      className="text-[11px] font-bold text-cyan-300 hover:underline cursor-pointer"
+                    >
+                      Abrir App NitroSense ↗
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePcToolAction(
+                          { kind: "set_fan_mode", fan_mode: "auto" },
+                          "Ventoinhas em Modo Automático...",
+                        )
+                      }
+                      className={`rounded-xl py-1.5 px-2 text-xs font-bold border transition-all cursor-pointer ${
+                        (batteryThermal?.fan_mode ?? "auto") === "auto"
+                          ? "bg-emerald-500/25 border-emerald-400 text-emerald-200"
+                          : "bg-black/45 border-white/10 text-zinc-300 hover:border-emerald-500/40"
+                      }`}
+                    >
+                      🔄 Automático
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePcToolAction(
+                          { kind: "set_fan_mode", fan_mode: "custom", custom_speed: customFanSpeed },
+                          `Ajustando Ventoinhas para ${customFanSpeed}%...`,
+                        )
+                      }
+                      className={`rounded-xl py-1.5 px-2 text-xs font-bold border transition-all cursor-pointer ${
+                        batteryThermal?.fan_mode === "custom"
+                          ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                          : "bg-black/45 border-white/10 text-zinc-300 hover:border-cyan-500/40"
+                      }`}
+                    >
+                      🌬️ Custom ({customFanSpeed}%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePcToolAction(
+                          { kind: "set_fan_mode", fan_mode: "max", custom_speed: 100 },
+                          "Ativando Ventoinhas no MÁXIMO (100%)...",
+                        )
+                      }
+                      className={`rounded-xl py-1.5 px-2 text-xs font-extrabold border transition-all cursor-pointer ${
+                        batteryThermal?.fan_mode === "max"
+                          ? "bg-[#ff5f00]/30 border-[#ff5f00] text-white"
+                          : "bg-black/45 border-white/10 text-[#ff9253] hover:border-[#ff5f00]/60"
+                      }`}
+                    >
+                      🌪️ MÁXIMO 100%
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-[10px] font-bold text-zinc-400">Velocidade Custom:</span>
+                    <input
+                      type="range"
+                      min={30}
+                      max={100}
+                      step={5}
+                      value={customFanSpeed}
+                      onChange={(e) => setCustomFanSpeed(Number(e.target.value))}
+                      onMouseUp={() =>
+                        handlePcToolAction({
+                          kind: "set_fan_mode",
+                          fan_mode: "custom",
+                          custom_speed: customFanSpeed,
+                        })
+                      }
+                      className="flex-1 accent-[#ff5f00] cursor-pointer"
+                    />
+                    <span className="text-xs font-black text-[#ff9253] w-10 text-right">{customFanSpeed}%</span>
+                  </div>
                 </div>
               </div>
             </div>

@@ -226,10 +226,20 @@ def apply_taskbar_icon_to_hwnd(hwnd: int = 0) -> None:
         WS_SYSMENU = 0x00080000
         WS_MINIMIZEBOX = 0x00020000
 
+        dwmapi = getattr(ctypes.windll, "dwmapi", None)
+
         for h in set(target_hwnds):
             if user32.IsWindowVisible(h):
                 cur_style = user32.GetWindowLongW(h, GWL_STYLE)
                 user32.SetWindowLongW(h, GWL_STYLE, cur_style | WS_SYSMENU | WS_MINIMIZEBOX)
+                if dwmapi:
+                    try:
+                        dark_mode = ctypes.c_int(1)
+                        dwmapi.DwmSetWindowAttribute(h, 20, ctypes.byref(dark_mode), 4)
+                        caption_col = ctypes.c_int(0x0008090A)
+                        dwmapi.DwmSetWindowAttribute(h, 35, ctypes.byref(caption_col), 4)
+                    except Exception:
+                        pass
             if hicon_big:
                 user32.SendMessageW(h, WM_SETICON, ICON_BIG, hicon_big)
                 if hasattr(user32, "SetClassLongPtrW"):
@@ -296,7 +306,7 @@ def run_native_webview_window():
         height=850,
         min_size=(1020, 680),
         background_color="#0a0908",
-        frameless=True,
+        frameless=False,
         easy_drag=False,
         resizable=True,
     )
@@ -528,6 +538,13 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
             if kind == "set_thermal_mode":
                 ok, msg = opt.set_power_thermal_mode(body.get("mode_id", "balanced"))
                 self._send_json({"ok": ok, "title": "🔋 Controle Térmico & Energia", "message": msg})
+                return
+            if kind == "set_fan_mode":
+                ok, msg = opt.set_nitrosense_fan_mode(
+                    body.get("fan_mode", "auto"),
+                    int(body.get("custom_speed", 75)),
+                )
+                self._send_json({"ok": ok, "title": "🌪️ Ventoinhas Acer NitroSense", "message": msg})
                 return
             self._send_json({"ok": False, "title": "Aviso", "message": "Ação desconhecida."})
             return

@@ -918,13 +918,21 @@ def apply_debloat_tweak(tweak_id: str, optimize: bool = True) -> tuple[bool, str
     return False, "Tweak não encontrado."
 
 
-_battery_health_cache = {"ts": 0.0, "health_pct": 94.0, "design_mwh": 0, "full_mwh": 0, "active_mode": "balanced"}
+_battery_health_cache = {
+    "ts": 0.0,
+    "health_pct": 94.0,
+    "design_mwh": 0,
+    "full_mwh": 0,
+    "active_mode": "balanced",
+    "fan_mode": "auto",
+    "fan_speed": 75,
+}
 
 
 def get_battery_and_thermal_status() -> dict:
     """
     Returns live battery charge %, AC plug status, real battery wear/health %,
-    GPU temperature, and active thermal/power mode.
+    GPU temperature, active thermal/power mode, and Acer NitroSense fan state.
     """
     bat = psutil.sensors_battery()
     percent = round(bat.percent, 1) if bat else 100.0
@@ -967,7 +975,98 @@ def get_battery_and_thermal_status() -> dict:
         "full_mwh": _battery_health_cache["full_mwh"],
         "gpu_temp_c": gpu.get("temp_c", 46),
         "active_mode": _battery_health_cache["active_mode"],
+        "fan_mode": _battery_health_cache["fan_mode"],
+        "fan_speed": _battery_health_cache["fan_speed"],
     }
+
+
+def set_nitrosense_fan_mode(fan_mode: str, custom_speed: int = 75) -> tuple[bool, str]:
+    """
+    Controls the Acer Nitro ANV15-41 CPU & GPU Fans directly via root\\wmi -> AcerGamingFunction
+    (SetGamingFanBehavior & SetGamingFanSpeed) and syncs NitroSense ProfilePool config.json.
+    Modes: 'auto' (Automático), 'max' (100% Máximo Turbo), 'custom' (30% - 100% Custom), 'open_app' (Abrir NitroSense).
+    """
+    if fan_mode == "open_app":
+        ps_launch = (
+            "$pkg = Get-AppxPackage *NitroSense* | Select-Object -First 1; "
+            "if ($pkg) { Start-Process \"shell:AppsFolder\\$($pkg.PackageFamilyName)!App\" }"
+        )
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", ps_launch],
+            creationflags=CREATE_NO_WINDOW,
+        )
+        return True, "Abrindo aplicativo oficial Acer NitroSense..."
+
+    speed_clamped = max(30, min(100, int(custom_speed)))
+    _battery_health_cache["fan_mode"] = fan_mode
+    _battery_health_cache["fan_speed"] = speed_clamped
+
+    # 1. Update NitroSense ProfilePool config.json if accessible
+    ns_cfg_path = r"C:\ProgramData\OEM\NitroSense\ProfilePool\config.json"
+    if os.path.exists(ns_cfg_path):
+        try:
+            with open(ns_cfg_path, "r", encoding="utf-8") as f:
+                ns_data = json.load(f)
+            mode_num = 0 if fan_mode == "auto" else (1 if fan_mode == "max" else 2)
+            for prof in ns_data.get("Scenario", {}).get("profiles", []):
+                if "fanControl" in prof:
+                    prof["fanControl"]["mode"] = mode_num
+                    for fd in prof["fanControl"].get("custom_fan_data", []):
+                        fd["fan_custom_auto"] = 1 if fan_mode == "auto" else 0
+                        fd["fan_custom_speed"] = 100 if fan_mode == "max" else speed_clamped
+            with open(ns_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(ns_data, f, indent="\t", ensure_ascii=False)
+        except Exception:
+            pass
+
+    # 2. Construct AcerGamingFunction WMI command
+    # Fan behavior bitmasks for Acer Nitro (CPU Fan bit0 + GPU Fan bit3 = 0x09 << 16):
+    # Auto: 0x00090041 | Max (100%): 0x00090082 | Custom: 0x000900C3
+    if fan_mode == "auto":
+        behavior_val = 0x00090041
+        speed_cmd = ""
+        msg = "🔄 Ventoinhas da CPU e RTX 4050 em Modo Automático Inteligente!"
+    elif fan_mode == "max":
+        behavior_val = 0x00090082
+        cpu_sp = (100 << 8) | 0x01
+        gpu_sp = (100 << 8) | 0x04
+        speed_cmd = (
+            f"Invoke-CimMethod -InputObject $inst -MethodName SetGamingFanSpeed -Arguments @{{gmInput=[uint64]{cpu_sp}}} -ErrorAction SilentlyContinue; "
+            f"Invoke-CimMethod -InputObject $inst -MethodName SetGamingFanSpeed -Arguments @{{gmInput=[uint64]{gpu_sp}}} -ErrorAction SilentlyContinue; "
+        )
+        msg = "🌪️ Ventoinhas do Acer Nitro em VELOCIDADE MÁXIMA (100% CoolBoost Turbo)!"
+    else:
+        behavior_val = 0x000900C3
+        cpu_sp = (speed_clamped << 8) | 0x01
+        gpu_sp = (speed_clamped << 8) | 0x04
+        speed_cmd = (
+            f"Invoke-CimMethod -InputObject $inst -MethodName SetGamingFanSpeed -Arguments @{{gmInput=[uint64]{cpu_sp}}} -ErrorAction SilentlyContinue; "
+            f"Invoke-CimMethod -InputObject $inst -MethodName SetGamingFanSpeed -Arguments @{{gmInput=[uint64]{gpu_sp}}} -ErrorAction SilentlyContinue; "
+        )
+        msg = f"🌬️ Ventoinhas do Acer Nitro ajustadas para {speed_clamped}% (CPU & GPU)!"
+
+    ps_wmi = (
+        "$inst = Get-CimInstance -Namespace root\\wmi -ClassName AcerGamingFunction -ErrorAction SilentlyContinue; "
+        "if ($inst) { "
+        f"Invoke-CimMethod -InputObject $inst -MethodName SetGamingFanBehavior -Arguments @{{gmInput=[uint64]{behavior_val}}} -ErrorAction SilentlyContinue; "
+        f"{speed_cmd}"
+        "}"
+    )
+
+    if is_user_admin():
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_wmi],
+                capture_output=True,
+                timeout=3.5,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
+    else:
+        run_admin_command("powershell.exe", f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "{ps_wmi}"')
+
+    return True, msg
 
 
 def set_power_thermal_mode(mode_id: str) -> tuple[bool, str]:
