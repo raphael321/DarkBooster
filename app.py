@@ -421,6 +421,20 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
             self._send_json({"duplicates": dups})
             return
 
+        if path == "/api/pc-tools":
+            self._send_json(
+                {
+                    "startup_apps": opt.get_startup_apps(),
+                    "debloat_tweaks": opt.get_debloat_tweaks(),
+                    "battery_thermal": opt.get_battery_and_thermal_status(),
+                }
+            )
+            return
+
+        if path == "/api/dns-benchmark":
+            self._send_json({"providers": opt.benchmark_dns_servers()})
+            return
+
         return super().do_GET()
 
     def do_POST(self):
@@ -483,6 +497,39 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
             tool_id = body.get("tool", "")
             ok, msg = opt.open_windows_system_tool(tool_id)
             self._send_json({"ok": ok, "message": msg})
+            return
+
+        if path == "/api/pc-tools-action":
+            kind = body.get("kind", "")
+            if kind == "gamer_mode":
+                enable = bool(body.get("enable", True))
+                res = opt.activate_gamer_mode(enable)
+                self._send_json({"ok": True, "title": res["title"], "message": res["message"]})
+                return
+            if kind == "toggle_startup":
+                ok, msg = opt.toggle_startup_app(
+                    body.get("name", ""),
+                    bool(body.get("enable", True)),
+                    body.get("source", "HKCU"),
+                )
+                self._send_json({"ok": ok, "title": "🚀 Inicialização do Windows", "message": msg})
+                return
+            if kind == "apply_dns":
+                ok, msg = opt.apply_network_dns(body.get("provider_id", "cloudflare"))
+                self._send_json({"ok": ok, "title": "🌐 Otimizador de Rede & DNS", "message": msg})
+                return
+            if kind == "toggle_debloat":
+                ok, msg = opt.apply_debloat_tweak(
+                    body.get("tweak_id", ""),
+                    bool(body.get("optimize", True)),
+                )
+                self._send_json({"ok": ok, "title": "🧹 Debloater & Desempenho Windows 11", "message": msg})
+                return
+            if kind == "set_thermal_mode":
+                ok, msg = opt.set_power_thermal_mode(body.get("mode_id", "balanced"))
+                self._send_json({"ok": ok, "title": "🔋 Controle Térmico & Energia", "message": msg})
+                return
+            self._send_json({"ok": False, "title": "Aviso", "message": "Ação desconhecida."})
             return
 
         if path == "/api/elevate-admin":

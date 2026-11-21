@@ -78,6 +78,39 @@ interface DuplicateGroup {
   all_paths: string[];
 }
 
+interface StartupApp {
+  name: string;
+  command: string;
+  enabled: boolean;
+  source: string;
+}
+
+interface DebloatTweak {
+  id: string;
+  title: string;
+  desc: string;
+  optimized: boolean;
+}
+
+interface DnsProvider {
+  id: string;
+  name: string;
+  primary: string;
+  secondary: string;
+  ping_ms: number;
+  is_fastest?: boolean;
+}
+
+interface BatteryThermalStatus {
+  charge_percent: number;
+  power_plugged: boolean;
+  health_percent: number;
+  design_mwh: number;
+  full_mwh: number;
+  gpu_temp_c: number;
+  active_mode: "cool" | "balanced" | "turbo";
+}
+
 interface RamProcess {
   display_name: string;
   raw_name: string;
@@ -265,7 +298,7 @@ function directSourcePath(cat: SafeCategory): string {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "safe" | "perm" | "hw">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "safe" | "perm" | "hw" | "pc">("overview");
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [safeCategories, setSafeCategories] = useState<SafeCategory[]>([]);
   const [selectedSafeIds, setSelectedSafeIds] = useState<Record<string, boolean>>({});
@@ -275,6 +308,14 @@ export default function App() {
   const [toast, setToast] = useState<{ title: string; msg: string } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [onlyOldFilter, setOnlyOldFilter] = useState(false);
+
+  // PC & Gamer 5 Modules State
+  const [startupApps, setStartupApps] = useState<StartupApp[]>([]);
+  const [debloatTweaks, setDebloatTweaks] = useState<DebloatTweak[]>([]);
+  const [dnsProviders, setDnsProviders] = useState<DnsProvider[]>([]);
+  const [dnsLoading, setDnsLoading] = useState(false);
+  const [batteryThermal, setBatteryThermal] = useState<BatteryThermalStatus | null>(null);
+  const [gamerModeActive, setGamerModeActive] = useState(false);
 
   // Duplicate Finder Modal State
   const [dupModalOpen, setDupModalOpen] = useState(false);
@@ -357,6 +398,56 @@ export default function App() {
       const data: { processes: RamProcess[] } = await res.json();
       setRamProcesses(data.processes.slice(0, 6));
     } catch {}
+  };
+
+  const fetchPcTools = async () => {
+    try {
+      const res = await fetch("/api/pc-tools");
+      if (!res.ok) return;
+      const data = await res.json();
+      setStartupApps(data.startup_apps || []);
+      setDebloatTweaks(data.debloat_tweaks || []);
+      setBatteryThermal(data.battery_thermal || null);
+    } catch {}
+  };
+
+  const runDnsBenchmark = async () => {
+    setDnsLoading(true);
+    try {
+      const res = await fetch("/api/dns-benchmark");
+      const data: { providers: DnsProvider[] } = await res.json();
+      setDnsProviders(data.providers || []);
+    } catch {
+      setDnsProviders([]);
+    } finally {
+      setDnsLoading(false);
+    }
+  };
+
+  const handlePcToolAction = async (payload: Record<string, unknown>, busyText?: string) => {
+    if (busyText) setBusyMessage(busyText);
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch("/api/pc-tools-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      const data = await res.json();
+      setBusyMessage(null);
+      if (payload.kind === "gamer_mode") {
+        setGamerModeActive(Boolean(payload.enable));
+      }
+      showToast(data.title || "✅ Concluído", data.message || "Configuração aplicada!");
+      fetchPcTools();
+      fetchTelemetry();
+    } catch {
+      setBusyMessage(null);
+      fetchPcTools();
+    }
   };
 
   useEffect(() => {
@@ -923,8 +1014,22 @@ export default function App() {
             accentSoftColor="#67e8f9"
             cornerRadius={28}
             arcWidth={activeTab === "hw" ? 16 : 4}
-            className="!py-2.5 !px-5 !text-xs"
+            className="!py-2.5 !px-4 !text-xs"
             onClick={() => setActiveTab("hw")}
+          />
+          <ShinyButton
+            label="🎮 PC & Gamer"
+            fillColor={activeTab === "pc" ? "#1d092b" : "#0b0a09"}
+            accentColor="#a855f7"
+            accentSoftColor="#d8b4fe"
+            cornerRadius={28}
+            arcWidth={activeTab === "pc" ? 16 : 4}
+            className="!py-2.5 !px-4 !text-xs"
+            onClick={() => {
+              setActiveTab("pc");
+              fetchPcTools();
+              if (dnsProviders.length === 0) runDnsBenchmark();
+            }}
           />
         </nav>
 
@@ -1531,6 +1636,358 @@ export default function App() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
+            VIEW 5: 🎮 PC & GAMER (MODO GAMER, BATERIA/TÉRMICO, DNS, STARTUP, DEBLOATER)
+        ===================================================================== */}
+        {activeTab === "pc" && (
+          <div className="space-y-4">
+            {/* Top Row: Module 1 (Modo Gamer FPS/Ping) + Module 5 (Saúde Bateria & Controle Térmico) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Module 1: Modo Gamer FPS & Ping Booster */}
+              <div className="gleam-panel gleam-panel-purple p-5 flex flex-col justify-between gap-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-purple-400">
+                      🎮 1. Modo Gamer • FPS & Ping Booster
+                    </span>
+                    <h3 className="text-lg font-black text-white mt-1">
+                      Desempenho Máximo para Jogos (Valorant / CS2 / Roblox / Steam)
+                    </h3>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Dá Prioridade Alta ao jogo na CPU, reduz apps em 2º plano, limpa RAM, desativa gravação Xbox Game
+                      DVR e dá Flush no DNS para estabilizar o ping.
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-extrabold shrink-0 ${
+                      gamerModeActive
+                        ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-300"
+                        : "bg-white/10 text-zinc-400"
+                    }`}
+                  >
+                    {gamerModeActive ? "🔥 ATIVO" : "Padrão"}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <ShinyButton
+                    label="🎮 Ativar Modo Gamer Agora"
+                    fillColor="#1f092b"
+                    accentColor="#a855f7"
+                    accentSoftColor="#d8b4fe"
+                    cornerRadius={24}
+                    arcWidth={14}
+                    className="!py-2.5 !px-5 !text-xs"
+                    onClick={() => handlePcToolAction({ kind: "gamer_mode", enable: true }, "Ativando Modo Gamer...")}
+                  />
+                  <ShinyButton
+                    label="⚖️ Restaurar Modo Normal"
+                    fillColor="#0d0c0b"
+                    accentColor="#71717a"
+                    cornerRadius={24}
+                    className="!py-2.5 !px-4 !text-xs"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "gamer_mode", enable: false }, "Restaurando Modo Normal...")
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Module 5: Saúde da Bateria & Controle Térmico do Notebook */}
+              <div className="gleam-panel gleam-panel-cyan p-5 flex flex-col justify-between gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">
+                      🔋 5. Saúde da Bateria & Controle Térmico (Notebook)
+                    </span>
+                    <h3 className="text-lg font-black text-white mt-1">
+                      Carga: {batteryThermal?.charge_percent ?? 100}%{" "}
+                      <span className="text-xs font-bold text-emerald-400">
+                        ({batteryThermal?.power_plugged ? "⚡ Na Tomada" : "🔋 Na Bateria"})
+                      </span>
+                    </h3>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-black text-cyan-300">
+                      Saúde: {batteryThermal?.health_percent ?? 94}%
+                    </div>
+                    <div className="text-[11px] text-zinc-400">
+                      GPU: {telemetry?.gpu.temp_c ?? 46}°C
+                    </div>
+                  </div>
+                </div>
+
+                {/* Battery Wear / Health Bar */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-zinc-300 font-semibold">
+                    <span>Vida Útil Real da Bateria (Capacidade Atual vs. Fábrica)</span>
+                    <span className="text-emerald-400 font-bold">{batteryThermal?.health_percent ?? 94}% Saudável</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                      style={{ width: `${batteryThermal?.health_percent ?? 94}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3 Thermal / Power Profiles */}
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "set_thermal_mode", mode_id: "cool" }, "Ativando Modo Frio...")
+                    }
+                    className={`rounded-xl py-2 px-2 text-xs font-bold border transition-all cursor-pointer ${
+                      batteryThermal?.active_mode === "cool"
+                        ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                        : "bg-black/45 border-white/10 text-zinc-300 hover:border-cyan-500/40"
+                    }`}
+                  >
+                    ❄️ Frio / Silêncio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "set_thermal_mode", mode_id: "balanced" }, "Ativando Equilibrado...")
+                    }
+                    className={`rounded-xl py-2 px-2 text-xs font-bold border transition-all cursor-pointer ${
+                      batteryThermal?.active_mode === "balanced"
+                        ? "bg-emerald-500/25 border-emerald-400 text-emerald-200"
+                        : "bg-black/45 border-white/10 text-zinc-300 hover:border-emerald-500/40"
+                    }`}
+                  >
+                    ⚖️ Equilibrado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "set_thermal_mode", mode_id: "turbo" }, "Ativando Turbo Máximo...")
+                    }
+                    className={`rounded-xl py-2 px-2 text-xs font-bold border transition-all cursor-pointer ${
+                      batteryThermal?.active_mode === "turbo"
+                        ? "bg-[#ff5f00]/25 border-[#ff5f00] text-[#ff9253]"
+                        : "bg-black/45 border-white/10 text-zinc-300 hover:border-[#ff5f00]/40"
+                    }`}
+                  >
+                    🔥 Turbo Tomada
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Middle Row: Module 3 (Otimizador de Rede, DNS Benchmark & Ping Test) */}
+            <div className="gleam-panel gleam-panel-green p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400">
+                    🌐 3. Otimizador de Rede, Benchmark de DNS & Ping em Tempo Real
+                  </span>
+                  <h3 className="text-base font-black text-white">
+                    Compare a latência (ms) na sua internet agora e aplique o DNS mais rápido em 1 clique
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShinyButton
+                    label={dnsLoading ? "Testando Ping..." : "⚡ Testar Ping DNS"}
+                    fillColor="#071f18"
+                    accentColor="#10b981"
+                    cornerRadius={20}
+                    className="!py-2 !px-4 !text-xs"
+                    onClick={runDnsBenchmark}
+                  />
+                  <ShinyButton
+                    label="🧹 Flush DNS"
+                    fillColor="#0c0a09"
+                    accentColor="#06b6d4"
+                    cornerRadius={20}
+                    className="!py-2 !px-3.5 !text-xs"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "apply_dns", provider_id: "flush_reset" }, "Limpando Cache DNS...")
+                    }
+                  />
+                  <ShinyButton
+                    label="🔄 Auto (DHCP)"
+                    fillColor="#0c0a09"
+                    accentColor="#71717a"
+                    cornerRadius={20}
+                    className="!py-2 !px-3.5 !text-xs"
+                    onClick={() =>
+                      handlePcToolAction({ kind: "apply_dns", provider_id: "dhcp" }, "Restaurando DNS Automático...")
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {dnsProviders.map((dns) => {
+                  const speedPct = Math.max(12, Math.min(100, 100 - dns.ping_ms));
+                  return (
+                    <div
+                      key={dns.id}
+                      className={`rounded-2xl p-3.5 border flex flex-col justify-between gap-2 ${
+                        dns.is_fastest
+                          ? "bg-emerald-950/35 border-emerald-400/60"
+                          : "bg-black/50 border-white/10"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-xs text-white truncate">{dns.name.split(" (")[0]}</span>
+                          {dns.is_fastest && (
+                            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-black text-emerald-300">
+                              🏆 MAIS RÁPIDO
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-mono text-zinc-400 mt-0.5">
+                          {dns.primary} • {dns.secondary}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-base font-black text-emerald-400">{dns.ping_ms} ms</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handlePcToolAction(
+                                { kind: "apply_dns", provider_id: dns.id },
+                                `Aplicando ${dns.name}...`,
+                              )
+                            }
+                            className="rounded-lg bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/40 px-2.5 py-1 text-[10px] font-bold text-emerald-200 cursor-pointer"
+                          >
+                            Aplicar DNS
+                          </button>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                            style={{ width: `${speedPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bottom Row: Module 2 (Startup Manager) + Module 4 (Windows 11 Debloater & Anti-Telemetry) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Module 2: Gerenciador de Inicialização do Windows */}
+              <div className="gleam-panel gleam-panel-amber p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+                      🚀 2. Programas que Iniciam com o Windows ({startupApps.filter((a) => a.enabled).length} ativos)
+                    </span>
+                    <h3 className="text-sm font-black text-white">
+                      Desative apps que abrem sozinhos ao ligar o PC (pode reativar quando quiser)
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {startupApps.map((app) => (
+                    <div
+                      key={`${app.source}::${app.name}`}
+                      className="rounded-xl bg-black/50 border border-white/10 px-3.5 py-2.5 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate">{app.name}</div>
+                        <div className="text-[10px] text-zinc-400 font-mono truncate max-w-xs">{app.command}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction({
+                            kind: "toggle_startup",
+                            name: app.name,
+                            enable: !app.enabled,
+                            source: app.source,
+                          })
+                        }
+                        className={`rounded-xl px-3 py-1 text-xs font-extrabold border transition-colors shrink-0 cursor-pointer ${
+                          app.enabled
+                            ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-300"
+                            : "bg-white/5 border-white/15 text-zinc-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                        }`}
+                      >
+                        {app.enabled ? "🟢 Ativo" : "⚪ Desativado"}
+                      </button>
+                    </div>
+                  ))}
+                  {startupApps.length === 0 && (
+                    <div className="py-6 text-center text-xs text-zinc-400">
+                      Nenhum aplicativo de usuário configurado na inicialização.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Module 4: Debloater Seguro & Anti-Telemetria do Windows 11 */}
+              <div className="gleam-panel p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#ff9253]">
+                      🧹 4. Debloater Seguro & Anti-Telemetria Windows 11
+                    </span>
+                    <h3 className="text-sm font-black text-white">
+                      Desative recursos pesados e anúncios ocultos do Windows 11
+                    </h3>
+                  </div>
+                  <ShinyButton
+                    label="🚀 Otimizar Todos"
+                    fillColor="#1f0e05"
+                    accentColor="#ff5f00"
+                    cornerRadius={20}
+                    className="!py-1.5 !px-3.5 !text-[11px] shrink-0"
+                    onClick={() =>
+                      handlePcToolAction(
+                        { kind: "toggle_debloat", tweak_id: "all", optimize: true },
+                        "Aplicando todos os 5 Tweaks...",
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {debloatTweaks.map((tw) => (
+                    <div
+                      key={tw.id}
+                      className="rounded-xl bg-black/50 border border-white/10 px-3.5 py-2.5 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white">{tw.title}</div>
+                        <div className="text-[10px] text-zinc-400 leading-tight mt-0.5">{tw.desc}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction({
+                            kind: "toggle_debloat",
+                            tweak_id: tw.id,
+                            optimize: !tw.optimized,
+                          })
+                        }
+                        className={`rounded-xl px-3 py-1 text-xs font-extrabold border transition-colors shrink-0 cursor-pointer ${
+                          tw.optimized
+                            ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300"
+                            : "bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        {tw.optimized ? "✅ Otimizado" : "⚡ Ativar"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
