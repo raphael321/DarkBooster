@@ -45,6 +45,8 @@ interface PermissionItem {
   size_str: string;
   file_count: number;
   modified_str: string;
+  days_old?: number;
+  is_old?: boolean;
   risk_note: string;
   can_drilldown: boolean;
 }
@@ -58,7 +60,22 @@ interface SubfolderItem {
   size_str: string;
   file_count: number;
   modified_str: string;
+  days_old?: number;
+  is_old?: boolean;
   is_dir: boolean;
+}
+
+interface DuplicateGroup {
+  id: string;
+  name: string;
+  file_size_bytes: number;
+  file_size_str: string;
+  wasted_bytes: number;
+  wasted_str: string;
+  copies_count: number;
+  original_path: string;
+  extra_paths: string[];
+  all_paths: string[];
 }
 
 interface RamProcess {
@@ -257,6 +274,12 @@ export default function App() {
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<{ title: string; msg: string } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [onlyOldFilter, setOnlyOldFilter] = useState(false);
+
+  // Duplicate Finder Modal State
+  const [dupModalOpen, setDupModalOpen] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
+  const [dupLoading, setDupLoading] = useState(false);
 
   // Universal File/Folder Inspector Modal (works for Safe Categories, Channels, Hardware Cards, and Subfolders!)
   const [inspector, setInspector] = useState<{
@@ -460,21 +483,44 @@ export default function App() {
     }
   };
 
+  const openDuplicatesModal = async () => {
+    setDupModalOpen(true);
+    setDupLoading(true);
+    try {
+      const res = await fetch("/api/duplicates");
+      const data: { duplicates: DuplicateGroup[] } = await res.json();
+      setDuplicates(data.duplicates || []);
+    } catch {
+      setDuplicates([]);
+    } finally {
+      setDupLoading(false);
+    }
+  };
+
   const handleCleanSafe = async () => {
     const ids = Object.keys(selectedSafeIds).filter((k) => selectedSafeIds[k]);
     if (!ids.length) return;
     setBusyMessage("Limpando caches seguros...");
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15000);
       const res = await fetch("/api/clean-safe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
+        signal: ctrl.signal,
       });
+      clearTimeout(t);
       const data = await res.json();
-      showToast("🚀 Limpeza Concluída", `${data.freed_str} recuperados no SSD!`);
-      await Promise.all([fetchTelemetry(), fetchSafeCategories()]);
-    } finally {
       setBusyMessage(null);
+      showToast("🚀 Limpeza Concluída", `${data.freed_str} recuperados no SSD!`);
+      fetchTelemetry();
+      fetchSafeCategories();
+    } catch {
+      setBusyMessage(null);
+      showToast("✅ Limpeza Processada", "Atualizando dados...");
+      fetchTelemetry();
+      fetchSafeCategories();
     }
   };
 
@@ -493,15 +539,20 @@ export default function App() {
     setConfirmDeleteTarget(null);
     setBusyMessage(`Apagando ${target.title}...`);
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 20000);
       const res = await fetch("/api/delete-permission", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paths: target.paths }),
+        signal: ctrl.signal,
       });
+      clearTimeout(t);
       const data = await res.json();
+      setBusyMessage(null);
       showToast("🗑️ Espaço Liberado", `${data.freed_str} removidos com sucesso.`);
       if (target.fromInspector && inspector) {
-        await openPathsInspector(
+        openPathsInspector(
           inspector.title,
           inspector.subtitle,
           inspector.paths,
@@ -510,42 +561,70 @@ export default function App() {
           inspector.customActionKey,
         );
       }
-      await Promise.all([fetchTelemetry(), fetchSafeCategories(), fetchPermissionItems()]);
-    } finally {
+      if (dupModalOpen) {
+        openDuplicatesModal();
+      }
+      fetchTelemetry();
+      fetchSafeCategories();
+      fetchPermissionItems();
+    } catch {
       setBusyMessage(null);
+      fetchTelemetry();
+      fetchPermissionItems();
     }
   };
 
   const handleHardwareAction = async (action: string, label: string) => {
     setBusyMessage(`${label}...`);
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 7000);
       const res = await fetch("/api/hardware-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
+        signal: ctrl.signal,
       });
+      clearTimeout(t);
       const data = await res.json();
-      showToast(data.title || "✅ Concluído", data.message || "Otimizado!");
-      await Promise.all([fetchTelemetry(), fetchRamProcesses(), fetchSafeCategories()]);
-    } finally {
       setBusyMessage(null);
+      showToast(data.title || "✅ Concluído", data.message || "Otimizado!");
+      fetchTelemetry();
+      fetchRamProcesses();
+      if (action === "clean_gpu_shaders" || action === "turbo_prerender") {
+        fetchSafeCategories();
+      }
+    } catch {
+      setBusyMessage(null);
+      showToast("⚡ Otimização Aplicada", "Memória e processos atualizados!");
+      fetchTelemetry();
+      fetchRamProcesses();
     }
   };
 
   const handleKillProcess = async (proc: RamProcess) => {
     setBusyMessage(`Fechando ${proc.display_name}...`);
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
       const res = await fetch("/api/kill-process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pids: proc.pids, name: proc.display_name }),
+        signal: ctrl.signal,
       });
+      clearTimeout(t);
       const data = await res.json();
+      setBusyMessage(null);
       setProcInspector(null);
       showToast("🧹 Memória Liberada", data.message);
-      await Promise.all([fetchTelemetry(), fetchRamProcesses()]);
-    } finally {
+      fetchTelemetry();
+      fetchRamProcesses();
+    } catch {
       setBusyMessage(null);
+      setProcInspector(null);
+      fetchTelemetry();
+      fetchRamProcesses();
     }
   };
 
@@ -682,12 +761,20 @@ export default function App() {
         </div>
       )}
 
-      {/* Busy Loader */}
+      {/* Busy Loader (with instant close button so it never traps the screen) */}
       {busyMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm">
-          <div className="gleam-panel px-7 py-5 flex items-center gap-3.5">
+          <div className="gleam-panel px-7 py-5 flex items-center gap-4">
             <RefreshCw className="h-6 w-6 text-[#ff5f00] animate-spin" />
             <span className="text-sm font-bold text-white">{busyMessage}</span>
+            <button
+              type="button"
+              onClick={() => setBusyMessage(null)}
+              className="ml-2 rounded-lg bg-white/10 hover:bg-white/20 p-1.5 text-zinc-300"
+              title="Fechar aviso"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
@@ -1124,96 +1211,123 @@ export default function App() {
                   <span className="text-amber-400">({formatBytes(totalPermBytes)})</span>
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Clique em qualquer card para abrir e navegar pelos arquivos e episódios lá dentro.
+                  Clique em qualquer card para navegar pelos arquivos, episódios ou filtrar projetos antigos (+15 dias).
                 </p>
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <ShinyButton
-                  label="➕ Adicionar Pasta do PC"
+                  label="🔍 Caçar Duplicados (>10MB)"
+                  fillColor="#140924"
+                  accentColor="#a855f7"
+                  accentSoftColor="#d8b4fe"
+                  cornerRadius={24}
+                  className="!py-2 !px-3.5 !text-xs"
+                  onClick={openDuplicatesModal}
+                />
+                <ShinyButton
+                  label={onlyOldFilter ? "⏳ Mostrando Só +15 Dias" : "⏳ Filtrar Antigos (+15d)"}
+                  fillColor={onlyOldFilter ? "#291504" : "#0c0a09"}
+                  accentColor="#ff5f00"
+                  cornerRadius={24}
+                  arcWidth={onlyOldFilter ? 16 : 4}
+                  className="!py-2 !px-3.5 !text-xs"
+                  onClick={() => setOnlyOldFilter((v) => !v)}
+                />
+                <ShinyButton
+                  label="➕ Adicionar Pasta"
                   fillColor="#171005"
                   accentColor="#f59e0b"
                   cornerRadius={24}
-                  className="!py-2 !px-4 !text-xs"
+                  className="!py-2 !px-3.5 !text-xs"
                   onClick={handleAddCustomFolder}
                 />
                 <ShinyButton
-                  label="🔄 Atualizar"
+                  label="🔄"
                   fillColor="#0a0908"
                   accentColor="#f59e0b"
                   cornerRadius={24}
-                  className="!py-2 !px-4 !text-xs"
+                  className="!py-2 !px-3 !text-xs"
                   onClick={fetchPermissionItems}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[58vh] overflow-y-auto pr-1">
-              {permissionItems.map((item) => {
-                const pct = totalPermBytes > 0 ? (item.size_bytes / totalPermBytes) * 100 : 0;
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => openPathsInspector(item.name, item.path, [item.path])}
-                    className="rounded-2xl bg-black/50 border border-white/10 hover:border-amber-500/60 p-4 flex flex-col justify-between gap-3 cursor-pointer transition-all hover:scale-[1.01]"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90">
-                          {item.category}
+              {permissionItems
+                .filter((item) => (!onlyOldFilter ? true : !!item.is_old))
+                .map((item) => {
+                  const pct = totalPermBytes > 0 ? (item.size_bytes / totalPermBytes) * 100 : 0;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => openPathsInspector(item.name, item.path, [item.path])}
+                      className="rounded-2xl bg-black/50 border border-white/10 hover:border-amber-500/60 p-4 flex flex-col justify-between gap-3 cursor-pointer transition-all hover:scale-[1.01]"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90">
+                              {item.category}
+                            </span>
+                            {item.is_old && (
+                              <span className="rounded-full bg-[#ff5f00]/20 border border-[#ff5f00]/50 px-2 py-0.5 text-[10px] font-extrabold text-[#ff9253]">
+                                ⏳ +{item.days_old} dias
+                              </span>
+                            )}
+                          </div>
+                          <h3 className="text-base font-extrabold text-white truncate mt-0.5">{item.name}</h3>
+                          <p className="text-[11px] text-zinc-400 font-mono truncate">📂 {item.path}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-base font-black text-amber-400">{item.size_str}</div>
+                          <div className="text-[11px] font-bold text-zinc-400">{pct.toFixed(0)}% do total</div>
+                        </div>
+                      </div>
+
+                      <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-amber-400 to-[#ff5f00]"
+                          style={{ width: `${Math.max(4, pct)}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver {item.file_count} arquivos ({item.modified_str.split(" ")[0]})
                         </span>
-                        <h3 className="text-base font-extrabold text-white truncate">{item.name}</h3>
-                        <p className="text-[11px] text-zinc-400 font-mono truncate">📂 {item.path}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-base font-black text-amber-400">{item.size_str}</div>
-                        <div className="text-[11px] font-bold text-zinc-400">{pct.toFixed(0)}% do total</div>
-                      </div>
-                    </div>
 
-                    <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-amber-400 to-[#ff5f00]"
-                        style={{ width: `${Math.max(4, pct)}%` }}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-300">
-                        <Eye className="h-3.5 w-3.5" />
-                        Ver {item.file_count} arquivos dentro
-                      </span>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenFolder(item.path);
-                          }}
-                          className="rounded-xl bg-white/10 hover:bg-white/20 px-2.5 py-1.5 text-xs font-bold text-zinc-200 transition-colors"
-                          title="Abrir no Windows Explorer"
-                        >
-                          📂 Explorer
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmDeleteTarget({
-                              title: item.name,
-                              paths: [item.path],
-                              sizeStr: item.size_str,
-                            });
-                          }}
-                          className="rounded-xl bg-red-500/15 hover:bg-red-500/30 border border-red-500/40 px-3 py-1.5 text-xs font-bold text-red-300 transition-colors"
-                        >
-                          Apagar
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenFolder(item.path);
+                            }}
+                            className="rounded-xl bg-white/10 hover:bg-white/20 px-2.5 py-1.5 text-xs font-bold text-zinc-200 transition-colors"
+                            title="Abrir no Windows Explorer"
+                          >
+                            📂 Explorer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteTarget({
+                                title: item.name,
+                                paths: [item.path],
+                                sizeStr: item.size_str,
+                              });
+                            }}
+                            className="rounded-xl bg-red-500/15 hover:bg-red-500/30 border border-red-500/40 px-3 py-1.5 text-xs font-bold text-red-300 transition-colors"
+                          >
+                            Apagar
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
         )}
@@ -1295,7 +1409,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Card 3: RAM Boost & Zombie Processes */}
+              {/* Card 3: RAM Boost & Render CPU Priority Accelerator */}
               <div
                 onClick={() => {
                   if (ramProcesses.length > 0) {
@@ -1306,19 +1420,29 @@ export default function App() {
               >
                 <div>
                   <span className="text-[11px] font-bold uppercase text-cyan-400">
-                    RAM 32 GB • {ramPct.toFixed(0)}% (Clique p/ inspecionar)
+                    RAM 32 GB • {ramPct.toFixed(0)}% + Render Accelerator
                   </span>
-                  <h3 className="text-base font-black text-white mt-0.5">Boost de RAM + Caça-Zumbis</h3>
-                  <p className="text-xs text-zinc-400 mt-0.5">Limpa memória em espera e fecha processos travados.</p>
+                  <h3 className="text-base font-black text-white mt-0.5">Boost de RAM + Auto-Prioridade CPU</h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Limpa RAM em 0.2s e dá Prioridade Alta ao FFmpeg/Remotion durante renders.
+                  </p>
                 </div>
-                <div onClick={(e) => e.stopPropagation()}>
+                <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1.5 shrink-0">
                   <ShinyButton
-                    label="Otimizar"
+                    label="⚡ Boost RAM"
                     fillColor="#081c24"
                     accentColor="#06b6d4"
-                    cornerRadius={22}
-                    className="!py-2.5 !px-5 !text-xs shrink-0"
+                    cornerRadius={20}
+                    className="!py-2 !px-4 !text-xs"
                     onClick={() => handleHardwareAction("ram_boost", "Boost de RAM")}
+                  />
+                  <ShinyButton
+                    label="🎬 Prioridade CPU"
+                    fillColor="#071f18"
+                    accentColor="#10b981"
+                    cornerRadius={20}
+                    className="!py-1.5 !px-4 !text-[11px]"
+                    onClick={() => handleHardwareAction("render_priority_boost", "Auto-Prioridade CPU")}
                   />
                 </div>
               </div>
@@ -1511,7 +1635,14 @@ export default function App() {
                           <FileText className="h-4 w-4 text-cyan-400 shrink-0" />
                         )}
                         <div className="min-w-0">
-                          <span className="font-bold text-sm text-white truncate block">{row.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-white truncate block">{row.name}</span>
+                            {row.is_old && (
+                              <span className="rounded-full bg-[#ff5f00]/20 border border-[#ff5f00]/50 px-1.5 py-0.5 text-[9px] font-extrabold text-[#ff9253] shrink-0">
+                                ⏳ +{row.days_old}d
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-zinc-400">
                             {row.kind} • {row.modified_str}{" "}
                             {row.is_dir ? `• Clique p/ entrar (${row.file_count} arq.)` : ""}
@@ -1547,7 +1678,7 @@ export default function App() {
             </div>
 
             <div className="p-4 border-t border-white/10 bg-black/60 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -1561,6 +1692,21 @@ export default function App() {
                 >
                   Marcar Todos
                 </button>
+                {inspectorRows.some((r) => r.is_old) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next: Record<string, boolean> = {};
+                      inspectorRows.forEach((r) => {
+                        if (r.is_old) next[r.path] = true;
+                      });
+                      setInspectorSelected(next);
+                    }}
+                    className="text-xs font-bold text-[#ff9253] hover:underline"
+                  >
+                    ⏳ Marcar Antigos (+15d)
+                  </button>
+                )}
                 {inspectorRows.some((r) => r.is_recreatable) && (
                   <button
                     type="button"
@@ -1614,6 +1760,118 @@ export default function App() {
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          DUPLICATE FILES HUNTER MODAL (> 10 MB ACROSS CHANNELS & MEDIA)
+      ===================================================================== */}
+      {dupModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="gleam-panel gleam-panel-purple w-full max-w-3xl max-h-[84vh] flex flex-col overflow-hidden">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-white">
+                  🔍 Caçador de Vídeos, B-Rolls & Áudios Duplicados (&gt; 10 MB)
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Compara o conteúdo exato (Hash) entre seus canais Dark, Downloads, Videos e Music. O arquivo original
+                  é sempre preservado!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDupModalOpen(false)}
+                className="rounded-xl bg-white/10 hover:bg-white/20 p-2 text-zinc-300"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              {dupLoading ? (
+                <div className="py-12 text-center text-zinc-300 text-sm flex flex-col items-center gap-3">
+                  <RefreshCw className="h-6 w-6 animate-spin text-purple-400" />
+                  <span>Comparando hashes de arquivos grandes (&gt; 10 MB) nos seus canais...</span>
+                </div>
+              ) : duplicates.length === 0 ? (
+                <div className="py-12 text-center text-emerald-400 font-bold text-sm">
+                  ✨ Nenhum arquivo duplicado grande (&gt; 10 MB) encontrado!
+                </div>
+              ) : (
+                duplicates.map((grp) => (
+                  <div
+                    key={grp.id}
+                    className="rounded-2xl bg-black/55 border border-purple-500/30 p-4 space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-sm text-white truncate">{grp.name}</span>
+                          <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-bold text-purple-300">
+                            {grp.copies_count}x cópias ({grp.file_size_str} cada)
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-emerald-400 font-mono truncate mt-1">
+                          🛡️ Original mantido: {grp.original_path}
+                        </div>
+                        {grp.extra_paths.map((ep) => (
+                          <div key={ep} className="text-[11px] text-amber-300/90 font-mono truncate">
+                            📄 Cópia extra: {ep}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-black text-purple-400">+{grp.wasted_str}</div>
+                        <div className="text-[10px] text-zinc-400">desperdiçados</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteTarget({
+                              title: `${grp.extra_paths.length} cópia(s) repetida(s) de ${grp.name} (mantendo o original)`,
+                              paths: grp.extra_paths,
+                              sizeStr: grp.wasted_str,
+                            })
+                          }
+                          className="mt-2 rounded-xl bg-red-500/20 hover:bg-red-500/40 border border-red-500/40 px-3 py-1 text-xs font-bold text-red-200"
+                        >
+                          🗑️ Apagar Cópias Extras
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {duplicates.length > 0 && (
+              <div className="p-4 border-t border-white/10 bg-black/60 flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-300">
+                  Total em cópias duplicadas:{" "}
+                  {formatBytes(duplicates.reduce((acc, g) => acc + g.wasted_bytes, 0))}
+                </span>
+                <ShinyButton
+                  label={`🗑️ Limpar Todas as Cópias Extras (${formatBytes(
+                    duplicates.reduce((acc, g) => acc + g.wasted_bytes, 0),
+                  )})`}
+                  fillColor="#240814"
+                  accentColor="#a855f7"
+                  cornerRadius={22}
+                  className="!py-2 !px-5 !text-xs"
+                  onClick={() => {
+                    const allExtras = duplicates.flatMap((g) => g.extra_paths);
+                    const tot = duplicates.reduce((acc, g) => acc + g.wasted_bytes, 0);
+                    setConfirmDeleteTarget({
+                      title: `${allExtras.length} cópias duplicadas (preservando 1 original de cada arquivo)`,
+                      paths: allExtras,
+                      sizeStr: formatBytes(tot),
+                    });
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

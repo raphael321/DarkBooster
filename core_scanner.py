@@ -1,5 +1,6 @@
 import ctypes
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ DEFAULT_CONFIG = {
     "ssd_alert_threshold_gb": 25.0,
     "auto_clean_safe_on_low_disk": False,
     "pause_during_render": True,
+    "auto_render_priority": True,
     "check_interval_seconds": 60,
     "custom_channel_paths": [
         os.path.join(USERPROFILE, "shorts"),
@@ -314,6 +316,11 @@ def scan_safe_categories() -> list[dict]:
     return results
 
 
+def _calc_days_old(mtime_ts: float) -> tuple[int, bool]:
+    days = max(0, int((time.time() - mtime_ts) // 86400))
+    return days, days >= 15
+
+
 def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
     """
     Scans Tier-2 PERMISSION items ('Arquivos que pode apagar mas precisa da minha permissão'):
@@ -340,7 +347,9 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
                     sz, fc, cap = fast_dir_size(entry.path, max_seconds=0.8)
                     if sz < 25 * 1024 * 1024:  # Show items >= 25 MB
                         continue
-                    mtime = datetime.datetime.fromtimestamp(entry.stat(follow_symlinks=False).st_mtime)
+                    st = entry.stat(follow_symlinks=False)
+                    mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+                    days_old, is_old = _calc_days_old(st.st_mtime)
                     is_tmp = root.lower().startswith("c:\\tmp")
                     category = "Pasta Temporária Raiz (C:\\tmp)" if is_tmp else f"Canal / Projeto Dark ({root_name})"
                     risk_note = (
@@ -358,6 +367,8 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
                             "size_str": format_size(sz, cap),
                             "file_count": fc,
                             "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                            "days_old": days_old,
+                            "is_old": is_old,
                             "risk_note": risk_note,
                             "can_drilldown": entry.is_dir(follow_symlinks=False),
                         }
@@ -406,7 +417,9 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
             try:
                 sz, fc, cap = fast_dir_size(sp_path, max_seconds=0.8)
                 if sz >= 30 * 1024 * 1024:
-                    mtime = datetime.datetime.fromtimestamp(os.stat(sp_path).st_mtime)
+                    st = os.stat(sp_path)
+                    mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+                    days_old, is_old = _calc_days_old(st.st_mtime)
                     items.append(
                         {
                             "id": f"special::{sp_path}",
@@ -417,6 +430,8 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
                             "size_str": format_size(sz, cap),
                             "file_count": fc,
                             "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                            "days_old": days_old,
+                            "is_old": is_old,
                             "risk_note": sp_note,
                             "can_drilldown": os.path.isdir(sp_path),
                         }
@@ -434,7 +449,9 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
                 try:
                     sz, fc, cap = fast_dir_size(entry.path, max_seconds=0.4)
                     if sz >= 50 * 1024 * 1024:
-                        mtime = datetime.datetime.fromtimestamp(entry.stat(follow_symlinks=False).st_mtime)
+                        st = entry.stat(follow_symlinks=False)
+                        mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+                        days_old, is_old = _calc_days_old(st.st_mtime)
                         items.append(
                             {
                                 "id": f"media::{entry.path}",
@@ -445,6 +462,8 @@ def scan_permission_items(custom_roots: list[str] | None = None) -> list[dict]:
                                 "size_str": format_size(sz, cap),
                                 "file_count": fc,
                                 "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                                "days_old": days_old,
+                                "is_old": is_old,
                                 "risk_note": f"Item grande na pasta {media_dir_name}. Confirme se já foi publicado/usado.",
                                 "can_drilldown": entry.is_dir(follow_symlinks=False),
                             }
@@ -470,6 +489,7 @@ def scan_subfolders_of(parent_path: str, min_bytes: int = 0) -> list[dict]:
         try:
             st = os.stat(parent_path, follow_symlinks=False)
             mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+            days_old, is_old = _calc_days_old(st.st_mtime)
             rows.append(
                 {
                     "name": os.path.basename(parent_path),
@@ -480,6 +500,8 @@ def scan_subfolders_of(parent_path: str, min_bytes: int = 0) -> list[dict]:
                     "size_str": format_size(st.st_size, False),
                     "file_count": 1,
                     "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                    "days_old": days_old,
+                    "is_old": is_old,
                     "is_dir": False,
                 }
             )
@@ -493,7 +515,9 @@ def scan_subfolders_of(parent_path: str, min_bytes: int = 0) -> list[dict]:
                 sz, fc, cap = fast_dir_size(entry.path, max_seconds=0.35)
                 if sz < min_bytes or sz == 0:
                     continue
-                mtime = datetime.datetime.fromtimestamp(entry.stat(follow_symlinks=False).st_mtime)
+                st = entry.stat(follow_symlinks=False)
+                mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+                days_old, is_old = _calc_days_old(st.st_mtime)
                 is_recreatable = entry.name.lower() in (
                     "node_modules",
                     ".venv",
@@ -517,6 +541,8 @@ def scan_subfolders_of(parent_path: str, min_bytes: int = 0) -> list[dict]:
                         "size_str": format_size(sz, cap),
                         "file_count": fc,
                         "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                        "days_old": days_old,
+                        "is_old": is_old,
                         "is_dir": entry.is_dir(follow_symlinks=False),
                     }
                 )
@@ -543,6 +569,7 @@ def inspect_multiple_paths(paths: list[str]) -> list[dict]:
         try:
             st = os.stat(p, follow_symlinks=False)
             mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+            days_old, is_old = _calc_days_old(st.st_mtime)
             is_d = os.path.isdir(p)
             if is_d and len(paths) <= 6:
                 # Expand children of each directory so user sees the actual files inside
@@ -566,6 +593,8 @@ def inspect_multiple_paths(paths: list[str]) -> list[dict]:
                     "size_str": format_size(sz, cap),
                     "file_count": fc,
                     "modified_str": mtime.strftime("%d/%m/%Y %H:%M"),
+                    "days_old": days_old,
+                    "is_old": is_old,
                     "is_dir": is_d,
                 }
             )
@@ -574,6 +603,108 @@ def inspect_multiple_paths(paths: list[str]) -> list[dict]:
 
     rows.sort(key=lambda x: x["size_bytes"], reverse=True)
     return rows[:120]
+
+
+def _partial_file_hash(filepath: str, size: int) -> str | None:
+    """Fast 64KB head + 64KB tail blake2b hash to pre-filter same-sized files."""
+    try:
+        h = hashlib.blake2b(digest_size=16)
+        with open(filepath, "rb") as f:
+            h.update(f.read(65536))
+            if size > 131072:
+                f.seek(max(0, size - 65536))
+                h.update(f.read(65536))
+        return h.hexdigest()
+    except Exception:
+        return None
+
+
+def scan_duplicate_files(custom_roots: list[str] | None = None, min_size_mb: int = 10) -> list[dict]:
+    """
+    Fast 3-stage duplicate file finder across Dark channels, Downloads, Videos, and Music.
+    Finds identical B-rolls, audio tracks, renders, and assets >= min_size_mb.
+    Returns duplicate groups with wasted space and paths of extra copies.
+    """
+    if custom_roots is None:
+        custom_roots = load_config().get("custom_channel_paths", DEFAULT_CONFIG["custom_channel_paths"])
+
+    scan_dirs = list(custom_roots) + [
+        os.path.join(USERPROFILE, "Downloads"),
+        os.path.join(USERPROFILE, "Videos"),
+        os.path.join(USERPROFILE, "Music"),
+    ]
+    min_bytes = min_size_mb * 1024 * 1024
+    skip_dirs = {"node_modules", ".git", ".venv", "__pycache__", ".next"}
+
+    by_size: dict[int, list[str]] = {}
+    t0 = time.perf_counter()
+
+    for root_dir in scan_dirs:
+        if not os.path.exists(root_dir):
+            continue
+        stack = [root_dir]
+        while stack:
+            if (time.perf_counter() - t0) > 6.0:
+                break
+            curr = stack.pop()
+            try:
+                with os.scandir(curr) as it:
+                    for entry in it:
+                        try:
+                            st = entry.stat(follow_symlinks=False)
+                            attrs = getattr(st, "st_file_attributes", 0)
+                            if attrs & (0x400000 | 0x1000 | 0x400):
+                                continue
+                            if entry.is_file(follow_symlinks=False):
+                                if st.st_size >= min_bytes:
+                                    by_size.setdefault(st.st_size, []).append(entry.path)
+                            elif entry.is_dir(follow_symlinks=False):
+                                if entry.name.lower() not in skip_dirs:
+                                    stack.append(entry.path)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    groups = []
+    for sz, paths in by_size.items():
+        if len(paths) < 2:
+            continue
+        # Deduplicate normalized paths
+        unique_paths = list({os.path.normcase(p): p for p in paths}.values())
+        if len(unique_paths) < 2:
+            continue
+
+        by_hash: dict[str, list[str]] = {}
+        for p in unique_paths:
+            ph = _partial_file_hash(p, sz)
+            if ph:
+                by_hash.setdefault(ph, []).append(p)
+
+        for ph, dup_list in by_hash.items():
+            if len(dup_list) < 2:
+                continue
+            dup_list_sorted = sorted(dup_list, key=lambda x: len(x))
+            original = dup_list_sorted[0]
+            extras = dup_list_sorted[1:]
+            wasted_bytes = sz * len(extras)
+            groups.append(
+                {
+                    "id": f"dup::{ph}",
+                    "name": os.path.basename(original),
+                    "file_size_bytes": sz,
+                    "file_size_str": format_size(sz),
+                    "wasted_bytes": wasted_bytes,
+                    "wasted_str": format_size(wasted_bytes),
+                    "copies_count": len(dup_list_sorted),
+                    "original_path": original,
+                    "extra_paths": extras,
+                    "all_paths": dup_list_sorted,
+                }
+            )
+
+    groups.sort(key=lambda x: x["wasted_bytes"], reverse=True)
+    return groups[:60]
 
 
 def empty_windows_recycle_bin() -> tuple[bool, str]:

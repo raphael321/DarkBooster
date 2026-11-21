@@ -415,6 +415,12 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
             self._send_json({"processes": procs})
             return
 
+        if path == "/api/duplicates":
+            cfg = scanner.load_config()
+            dups = scanner.scan_duplicate_files(cfg.get("custom_channel_paths"), min_size_mb=10)
+            self._send_json({"duplicates": dups})
+            return
+
         return super().do_GET()
 
     def do_POST(self):
@@ -432,7 +438,6 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
                     fr, dl = scanner.clean_safe_category(c)
                     freed_total += fr
                     deleted_total += dl
-            opt.trim_self_memory()
             self._send_json(
                 {
                     "ok": True,
@@ -548,6 +553,20 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
                     {
                         "title": "🧠 Boost de RAM Concluído",
                         "message": f"Otimizados {res['trimmed_processes']} processos (~{res['freed_mb']} MB liberados | {res['available_gb']} GB disponíveis agora).",
+                    }
+                )
+                return
+
+            if action == "render_priority_boost":
+                res = opt.apply_render_priority_boost(enable=True)
+                if res["boosted_count"] > 0:
+                    msg = f"Prioridade ALTA ativada em {res['boosted_count']} processo(s) ({', '.join(res['boosted_apps'])}) e {res['throttled_count']} apps de fundo reduzidos."
+                else:
+                    msg = "Modo Auto-Prioridade ativo! Assim que o FFmpeg/Remotion iniciar um render, ele receberá Prioridade Alta automaticamente."
+                self._send_json(
+                    {
+                        "title": "⚡ Render Accelerator (Prioridade de CPU)",
+                        "message": msg,
                     }
                 )
                 return
@@ -760,9 +779,11 @@ class DarkStudioController:
                 opt.trim_self_memory()
 
                 rendering, render_apps = opt.is_rendering_active()
+                if self.config.get("auto_render_priority", True):
+                    opt.apply_render_priority_boost(enable=True)
                 if rendering and self.config.get("pause_during_render", True):
                     if self.tray_icon:
-                        self.tray_icon.title = f"DarkStudio — Modo Render ({', '.join(render_apps[:2])})"
+                        self.tray_icon.title = f"DarkBooster — Modo Render + Prioridade Alta ({', '.join(render_apps[:2])})"
                     continue
 
                 usage = psutil.disk_usage("C:\\")
