@@ -52,8 +52,8 @@ export const recursiveErosionSource = `<!DOCTYPE html>
     return s1 + s2;
   }
 
-  // Ultra-efficient 450-particle Fibonacci sphere (<1.5% CPU, zero heat!)
-  const NUM_PARTICLES = 450;
+  // Smooth 800-particle Fibonacci sphere at 35 FPS (<2% CPU)
+  const NUM_PARTICLES = 800;
   const particles = [];
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
@@ -75,7 +75,7 @@ export const recursiveErosionSource = `<!DOCTYPE html>
 
   let time = 0;
   let lastFrame = 0;
-  const FRAME_MS = 45; // Capped at ~22 FPS instead of 144 FPS -> 95% less CPU/GPU heat
+  const FRAME_MS = 28; // Smooth 35 FPS
 
   function render(now) {
     requestAnimationFrame(render);

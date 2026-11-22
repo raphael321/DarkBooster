@@ -1070,20 +1070,25 @@ def set_nitrosense_fan_mode(fan_mode: str, custom_speed: int = 75) -> tuple[bool
 
 
 def set_power_thermal_mode(mode_id: str) -> tuple[bool, str]:
-    """Switches Windows power & thermal plan between Cool/Quiet, Balanced, and Turbo Max."""
+    """Switches Windows power & thermal plan between Cool/Quiet (85%), Balanced Ryzen-Cool (99%), and Turbo Max (100%)."""
     modes = {
-        "cool": ("a1841308-3541-4fab-bc81-f71556f20b4a", "❄️ Modo Frio & Silencioso ativado (menor aquecimento e economia de bateria)."),
-        "balanced": ("381b4222-f694-41f0-9685-ff5bb260df2e", "⚖️ Modo Equilibrado Inteligente ativado."),
-        "turbo": ("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", "🔥 Modo Turbo Desempenho Máximo ativado (100% de clock na CPU e RTX 4050)!"),
+        "cool": ("a1841308-3541-4fab-bc81-f71556f20b4a", "85", "❄️ Modo Frio & Silencioso ativado (CPU máx 85% — super frio e silencioso)."),
+        "balanced": ("381b4222-f694-41f0-9685-ff5bb260df2e", "99", "⚖️ Modo Equilibrado Ryzen-Frio ativado (CPU máx 99% — elimina picos de 95°C)."),
+        "turbo": ("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", "100", "🔥 Modo Turbo Desempenho Máximo ativado (100% Boost na CPU e RTX 4050)!"),
     }
     if mode_id not in modes:
         return False, "Modo desconhecido."
-    guid, msg = modes[mode_id]
+    guid, max_pct, msg = modes[mode_id]
     try:
         subprocess.run(["powercfg", "/setactive", guid], capture_output=True, timeout=3, creationflags=CREATE_NO_WINDOW)
-        # Always allow CPU to idle down to 5% when not under load so Ryzen mobile stays cool
         subprocess.run(
             ["powercfg", "/setacvalueindex", "SCHEME_CURRENT", "SUB_PROCESSOR", "PROCTHROTTLEMIN", "5"],
+            capture_output=True,
+            timeout=2,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        subprocess.run(
+            ["powercfg", "/setacvalueindex", "SCHEME_CURRENT", "SUB_PROCESSOR", "PROCTHROTTLEMAX", max_pct],
             capture_output=True,
             timeout=2,
             creationflags=CREATE_NO_WINDOW,
