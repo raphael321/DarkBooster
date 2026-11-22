@@ -1,5 +1,6 @@
 Set WshShell = CreateObject("WScript.Shell")
-strDir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
+Set fso = CreateObject("Scripting.FileSystemObject")
+strDir = fso.GetParentFolderName(WScript.ScriptFullName)
 WshShell.CurrentDirectory = strDir
 
 strArgs = ""
@@ -7,5 +8,14 @@ If WScript.Arguments.Count > 0 Then
     strArgs = " " & WScript.Arguments(0)
 End If
 
-strPythonW = "C:\Users\rapha\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe"
-WshShell.Run """" & strPythonW & """ """ & strDir & "\app.py""" & strArgs, 0, False
+On Error Resume Next
+WshShell.Run "pythonw.exe """ & strDir & "\app.py""" & strArgs, 0, False
+If Err.Number <> 0 Then
+    Err.Clear
+    WshShell.Run "pyw.exe """ & strDir & "\app.py""" & strArgs, 0, False
+    If Err.Number <> 0 Then
+        Err.Clear
+        WshShell.Run """" & strDir & "\Instalar_e_Abrir_DarkBooster.bat""", 1, False
+    End If
+End If
+On Error GoTo 0

@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "released_at": "2026-11-22",
-  "notes": "Novo Monitor Térmico DarkBooster Sense (CPU/GPU/Sistema), Controle de Ventoinhas Acer NitroSense, Suite PC & Gamer e Auto-Updater 1-Clique."
+  "notes": "Corrigido DarkBooster.exe e inicializadores para funcionar em qualquer PC/usuario sem caminho fixo + Instalador Automatico (Instalar_e_Abrir_DarkBooster.bat)."
 }
