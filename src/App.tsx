@@ -398,6 +398,12 @@ export default function App() {
   const [batteryThermal, setBatteryThermal] = useState<BatteryThermalStatus | null>(null);
   const [gamerModeActive, setGamerModeActive] = useState(false);
   const [customFanSpeed, setCustomFanSpeed] = useState(75);
+  const [updateInfo, setUpdateInfo] = useState<{
+    update_available: boolean;
+    local_version: string;
+    remote_version: string;
+    notes: string;
+  } | null>(null);
 
   // Duplicate Finder Modal State
   const [dupModalOpen, setDupModalOpen] = useState(false);
@@ -532,6 +538,50 @@ export default function App() {
     }
   };
 
+  const checkForUpdates = async (manual = false) => {
+    try {
+      const res = await fetch("/api/check-update");
+      if (!res.ok) return;
+      const data = await res.json();
+      setUpdateInfo(data);
+      if (manual) {
+        if (data.update_available) {
+          showToast("⬇️ Nova Versão Encontrada!", `v${data.remote_version} disponível no GitHub. Clique em Atualizar Agora!`);
+        } else {
+          showToast("✅ DarkBooster Atualizado", `Você já está na última versão (v${data.local_version}).`);
+        }
+      }
+    } catch {
+      if (manual) {
+        showToast("Aviso", "Não foi possível verificar o GitHub agora.");
+      }
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    setBusyMessage("Baixando e instalando atualização do GitHub...");
+    try {
+      const res = await fetch("/api/apply-update", { method: "POST" });
+      const data = await res.json();
+      setBusyMessage(null);
+      if (data.ok) {
+        showToast("🚀 Atualização Concluída!", data.message);
+        setTimeout(() => {
+          if (window.pywebview?.api?.close_to_tray) {
+            window.pywebview.api.close_to_tray();
+          } else {
+            window.close();
+          }
+        }, 1200);
+      } else {
+        showToast("Erro na Atualização", data.message || "Falha ao atualizar.");
+      }
+    } catch {
+      setBusyMessage(null);
+      showToast("Erro na Atualização", "Não foi possível completar o download.");
+    }
+  };
+
   useEffect(() => {
     fetchTelemetry().then(() => {
       fetch("/api/telemetry")
@@ -549,6 +599,7 @@ export default function App() {
     fetchSafeCategories();
     fetchPermissionItems();
     fetchRamProcesses();
+    checkForUpdates(false);
 
     const timer = setInterval(fetchTelemetry, 4500);
     return () => clearInterval(timer);
@@ -1003,8 +1054,18 @@ export default function App() {
             <Zap className="h-3.5 w-3.5 fill-black" />
           </div>
           <span className="text-xs font-extrabold tracking-wide text-zinc-200">
-            DarkBooster <span className="text-[#ff5f00]">• Desktop Nativo</span>
+            DarkBooster <span className="text-[#ff5f00]">v{updateInfo?.local_version ?? "2.1.0"}</span>
           </span>
+          {updateInfo?.update_available && (
+            <button
+              type="button"
+              onClick={handleApplyUpdate}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/25 hover:bg-emerald-500/45 border border-emerald-400 px-2.5 py-0.5 text-[10px] font-black text-emerald-200 animate-pulse transition-colors cursor-pointer"
+              title={updateInfo.notes || "Baixar e instalar nova versão do GitHub"}
+            >
+              ⬇️ Atualização v{updateInfo.remote_version} — Atualizar Agora
+            </button>
+          )}
           {telemetry?.is_admin ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
               <ShieldCheck className="h-3 w-3" />
@@ -3025,6 +3086,32 @@ export default function App() {
                 />
                 <span className="text-zinc-200">Iniciar silenciosamente junto com o Windows</span>
               </label>
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white">
+                    📦 Versão Atual: <span className="text-[#ff9253]">v{updateInfo?.local_version ?? "2.1.0"}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => checkForUpdates(true)}
+                    className="text-xs font-bold text-cyan-400 hover:underline cursor-pointer"
+                  >
+                    🔄 Verificar no GitHub
+                  </button>
+                </div>
+                {updateInfo?.update_available && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsModal(false);
+                      handleApplyUpdate();
+                    }}
+                    className="w-full rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400 py-2 text-xs font-extrabold text-emerald-200 cursor-pointer"
+                  >
+                    ⬇️ Baixar e Instalar v{updateInfo.remote_version} Agora
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end pt-2">

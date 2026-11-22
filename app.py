@@ -22,6 +22,7 @@ import pystray
 
 import core_optimizer as opt
 import core_scanner as scanner
+import core_updater as updater
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(APP_DIR, "dist")
@@ -467,6 +468,10 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
             self._send_json({"providers": opt.benchmark_dns_servers()})
             return
 
+        if path == "/api/check-update":
+            self._send_json(updater.check_for_updates())
+            return
+
         return super().do_GET()
 
     def do_POST(self):
@@ -569,6 +574,24 @@ class DarkStudioAPIHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": ok, "title": "🌪️ Ventoinhas Acer NitroSense", "message": msg})
                 return
             self._send_json({"ok": False, "title": "Aviso", "message": "Ação desconhecida."})
+            return
+
+        if path == "/api/apply-update":
+            ok, msg = updater.download_and_apply_update()
+            self._send_json({"ok": ok, "message": msg})
+            if ok:
+                def _relaunch_after_update():
+                    time.sleep(1.2)
+                    exe_path = os.path.join(APP_DIR, "DarkBooster.exe")
+                    if os.path.exists(exe_path):
+                        subprocess.Popen([exe_path], cwd=APP_DIR)
+                    else:
+                        subprocess.Popen([PYTHONW_EXE, os.path.join(APP_DIR, "app.py")], cwd=APP_DIR)
+                    if self.controller:
+                        self.controller._tray_quit()
+                    else:
+                        os._exit(0)
+                threading.Thread(target=_relaunch_after_update, daemon=True).start()
             return
 
         if path == "/api/elevate-admin":
