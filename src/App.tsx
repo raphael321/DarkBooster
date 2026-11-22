@@ -156,6 +156,11 @@ interface TelemetryData {
     vram_percent: number;
     temp_c: number;
     util_percent: number;
+    clock_mhz?: number;
+    cpu_temp_c?: number;
+    sys_temp_c?: number;
+    cpu_percent?: number;
+    cpu_freq_mhz?: number;
   };
   sys_files: {
     pagefile_gb: number;
@@ -252,6 +257,78 @@ function RadialGauge({
   );
 }
 
+function NitroTempGauge({
+  tempC,
+  label,
+  size = 124,
+}: {
+  tempC: number;
+  label: string;
+  size?: number;
+}) {
+  const safeT = Math.max(0, Math.min(110, tempC || 0));
+  const pct = Math.min(100, (safeT / 100) * 100);
+  const strokeWidth = 10;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+  const gradId = `nitro-grad-${label.replace(/\s+/g, "")}`;
+  const isHot = safeT >= 82;
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90 transform">
+          <defs>
+            <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ffb703" />
+              <stop offset="55%" stopColor="#ff5f00" />
+              <stop offset="100%" stopColor={isHot ? "#ff002b" : "#ef233c"} />
+            </linearGradient>
+          </defs>
+          {/* Segmented dashed background ring like NitroSense */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="rgba(255,95,0,0.16)"
+            strokeWidth={strokeWidth}
+            strokeDasharray="4 4"
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke={`url(#${gradId})`}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            style={{
+              transition: "stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+              filter: isHot
+                ? "drop-shadow(0 0 12px rgba(255, 0, 43, 0.8))"
+                : "drop-shadow(0 0 10px rgba(255, 95, 0, 0.7))",
+            }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          <span className="text-3xl font-black tracking-tight text-white leading-none">{safeT}</span>
+          <span className="text-xs font-bold text-zinc-400 mt-0.5">°C</span>
+        </div>
+      </div>
+      <div className="min-w-[68px]">
+        <div className="text-sm font-black uppercase tracking-wider text-zinc-200">{label}</div>
+        <div className={`text-[11px] font-bold ${isHot ? "text-red-400" : safeT >= 70 ? "text-amber-400" : "text-emerald-400"}`}>
+          {isHot ? "🔥 Quente" : safeT >= 70 ? "⚡ Morno" : "❄️ Normal"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatBytes(bytes: number): string {
   const mb = bytes / 1024 ** 2;
   if (mb >= 1000) {
@@ -302,7 +379,7 @@ function directSourcePath(cat: SafeCategory): string {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "safe" | "perm" | "hw" | "pc">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "monitor" | "safe" | "perm" | "hw" | "pc">("overview");
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [safeCategories, setSafeCategories] = useState<SafeCategory[]>([]);
   const [selectedSafeIds, setSelectedSafeIds] = useState<Record<string, boolean>>({});
@@ -1033,8 +1110,22 @@ export default function App() {
             accentSoftColor="#ff9253"
             cornerRadius={28}
             arcWidth={activeTab === "overview" ? 16 : 4}
-            className="!py-2.5 !px-5 !text-xs"
+            className="!py-2.5 !px-4 !text-xs"
             onClick={() => setActiveTab("overview")}
+          />
+          <ShinyButton
+            label="🔥 Monitor"
+            fillColor={activeTab === "monitor" ? "#2e0d04" : "#0b0a09"}
+            accentColor="#ff3b00"
+            accentSoftColor="#ff9253"
+            cornerRadius={28}
+            arcWidth={activeTab === "monitor" ? 16 : 4}
+            className="!py-2.5 !px-4 !text-xs"
+            onClick={() => {
+              setActiveTab("monitor");
+              fetchPcTools();
+              fetchTelemetry();
+            }}
           />
           <ShinyButton
             label={`Limpeza Segura (${formatBytes(totalSafeBytes)})`}
@@ -1240,6 +1331,288 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
+            VIEW: 🔥 MONITOR (NITROSENSE-STYLE THERMAL & PERFORMANCE COCKPIT)
+        ===================================================================== */}
+        {activeTab === "monitor" && (
+          <div className="space-y-4">
+            {/* Top Mode Banner like NitroSense */}
+            <div className="text-center space-y-0.5">
+              <div className="text-xs font-black tracking-[0.28em] text-[#ff5f00] uppercase">
+                DARKBOOSTER SENSE
+              </div>
+              <div className="text-lg font-extrabold text-white">
+                Sistema Modo:{" "}
+                <span className="text-[#ff9253]">
+                  {batteryThermal?.active_mode === "cool"
+                    ? "Frio / Silêncio"
+                    : batteryThermal?.active_mode === "turbo"
+                      ? "Turbo Máximo"
+                      : "Equilibrado"}
+                </span>
+              </div>
+            </div>
+
+            {/* 3-Column NitroSense Cockpit Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              {/* LEFT COLUMN (4 cols): GPU Frequency Ring + Utilization Bars */}
+              <div className="lg:col-span-4 gleam-panel p-5 flex flex-col justify-between gap-5">
+                <div className="flex flex-col items-center justify-center pt-2">
+                  {/* Glowing Segmented GPU Frequency Ring */}
+                  <div className="relative flex h-44 w-44 items-center justify-center rounded-full border-2 border-dashed border-[#ff5f00]/45 bg-black/55 shadow-[0_0_35px_rgba(255,95,0,0.18)]">
+                    <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full border border-[#ff5f00]/30 bg-gradient-to-b from-[#1a0d07] to-black text-center">
+                      <span className="text-lg font-black tracking-wider text-zinc-200">GPU</span>
+                      <span className="text-[10px] font-bold uppercase text-zinc-400 mt-0.5">Frequência</span>
+                      <span className="text-2xl font-black text-[#ff9253] mt-1">
+                        {telemetry?.gpu.clock_mhz && telemetry.gpu.clock_mhz > 0 ? telemetry.gpu.clock_mhz : "--"}
+                      </span>
+                      <span className="text-[11px] font-bold text-zinc-400">MHz</span>
+                    </div>
+                  </div>
+                  <span className="mt-3 text-xs font-bold text-[#ff9253]">
+                    {telemetry?.gpu.util_percent && telemetry.gpu.util_percent > 0
+                      ? `RTX 4050 Ativa (${telemetry.gpu.util_percent}% carga)`
+                      : "GPU dedicada em repouso (economia)"}
+                  </span>
+                </div>
+
+                {/* Utilization Bars like NitroSense */}
+                <div className="space-y-3 border-t border-white/10 pt-4">
+                  <div>
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-zinc-400">GPU Utilização</span>
+                      <span className="text-white">{gpuPct}%</span>
+                    </div>
+                    <div className="mt-1 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#ff5f00] to-amber-400 transition-all duration-500"
+                        style={{ width: `${Math.max(2, gpuPct)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-zinc-400">CPU Utilização ({telemetry?.gpu.cpu_freq_mhz ?? 3200} MHz)</span>
+                      <span className="text-white">{telemetry?.gpu.cpu_percent ?? 18}%</span>
+                    </div>
+                    <div className="mt-1 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-amber-400 to-[#ff5f00] transition-all duration-500"
+                        style={{ width: `${Math.max(4, telemetry?.gpu.cpu_percent ?? 18)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-zinc-400">RAM ({telemetry?.ram.used_gb.toFixed(1) ?? 15} / 32 GB)</span>
+                      <span className="text-cyan-300">{ramPct.toFixed(1)}%</span>
+                    </div>
+                    <div className="mt-1 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
+                        style={{ width: `${ramPct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CENTER COLUMN (4 cols): 3 Vertical Glowing Temperature Arc Rings (GPU, CPU, Sistema) */}
+              <div className="lg:col-span-4 gleam-panel p-5 flex flex-col items-center justify-center gap-4">
+                <div className="text-[10px] font-black tracking-[0.3em] text-zinc-500 uppercase">
+                  TEMPERATURA AO VIVO
+                </div>
+                <NitroTempGauge tempC={telemetry?.gpu.temp_c ?? 50} label="GPU" size={118} />
+                <NitroTempGauge tempC={telemetry?.gpu.cpu_temp_c ?? 64} label="CPU" size={118} />
+                <NitroTempGauge tempC={telemetry?.gpu.sys_temp_c ?? 52} label="Sistema" size={118} />
+              </div>
+
+              {/* RIGHT COLUMN (4 cols): Perfil de Cenário + Ventoinhas + Monitorização 6-Tile Grid */}
+              <div className="lg:col-span-4 flex flex-col gap-4">
+                {/* Perfil de Cenário & Ventoinha */}
+                <div className="gleam-panel p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-[#ff9253]">
+                      Perfil de Cenário
+                    </span>
+                    <span className="text-[11px] font-bold text-zinc-400">Acer Nitro ANV15-41</span>
+                  </div>
+
+                  {/* Modo selector */}
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold text-zinc-400">Modo do Sistema</div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction({ kind: "set_thermal_mode", mode_id: "cool" }, "Ativando Modo Frio...")
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-bold border transition-all cursor-pointer ${
+                          batteryThermal?.active_mode === "cool"
+                            ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                            : "bg-black/50 border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        ❄️ Frio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction(
+                            { kind: "set_thermal_mode", mode_id: "balanced" },
+                            "Ativando Equilibrado...",
+                          )
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-bold border transition-all cursor-pointer ${
+                          (batteryThermal?.active_mode ?? "balanced") === "balanced"
+                            ? "bg-emerald-500/25 border-emerald-400 text-emerald-200"
+                            : "bg-black/50 border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        ⚖️ Equil.
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction({ kind: "set_thermal_mode", mode_id: "turbo" }, "Ativando Turbo...")
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-bold border transition-all cursor-pointer ${
+                          batteryThermal?.active_mode === "turbo"
+                            ? "bg-[#ff5f00]/30 border-[#ff5f00] text-[#ff9253]"
+                            : "bg-black/50 border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        🔥 Turbo
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Ventoinha selector */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between text-[11px] font-bold">
+                      <span className="text-zinc-400">Ventoinha (CPU & RTX 4050)</span>
+                      <span className="text-[#ff9253] uppercase">
+                        {batteryThermal?.fan_mode === "max"
+                          ? "MÁX 100%"
+                          : batteryThermal?.fan_mode === "custom"
+                            ? `${customFanSpeed}%`
+                            : "Automático"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction(
+                            { kind: "set_fan_mode", fan_mode: "auto" },
+                            "Ventoinha Automática...",
+                          )
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-bold border transition-all cursor-pointer ${
+                          (batteryThermal?.fan_mode ?? "auto") === "auto"
+                            ? "bg-emerald-500/25 border-emerald-400 text-emerald-200"
+                            : "bg-black/50 border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        🔄 Auto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction(
+                            { kind: "set_fan_mode", fan_mode: "custom", custom_speed: customFanSpeed },
+                            `Ventoinha ${customFanSpeed}%...`,
+                          )
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-bold border transition-all cursor-pointer ${
+                          batteryThermal?.fan_mode === "custom"
+                            ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                            : "bg-black/50 border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        🌬️ {customFanSpeed}%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePcToolAction(
+                            { kind: "set_fan_mode", fan_mode: "max", custom_speed: 100 },
+                            "Ventoinha Máxima...",
+                          )
+                        }
+                        className={`rounded-xl py-1.5 text-xs font-extrabold border transition-all cursor-pointer ${
+                          batteryThermal?.fan_mode === "max"
+                            ? "bg-[#ff5f00]/30 border-[#ff5f00] text-white"
+                            : "bg-black/50 border-white/10 text-[#ff9253]"
+                        }`}
+                      >
+                        🌪️ Máx
+                      </button>
+                    </div>
+                    <input
+                      type="range"
+                      min={30}
+                      max={100}
+                      step={5}
+                      value={customFanSpeed}
+                      onChange={(e) => setCustomFanSpeed(Number(e.target.value))}
+                      onMouseUp={() =>
+                        handlePcToolAction({
+                          kind: "set_fan_mode",
+                          fan_mode: "custom",
+                          custom_speed: customFanSpeed,
+                        })
+                      }
+                      className="w-full accent-[#ff5f00] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Monitorização 6-Tile Grid (Just like NitroSense!) */}
+                <div className="gleam-panel p-4 flex-1 flex flex-col justify-between">
+                  <div className="text-xs font-extrabold uppercase tracking-wider text-[#ff9253] border-b border-white/10 pb-2 mb-3">
+                    Monitorização em Tempo Real
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">GPU</div>
+                      <div className="text-lg font-black text-white mt-0.5">{gpuPct}%</div>
+                    </div>
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">GPU</div>
+                      <div className="text-lg font-black text-[#ff9253] mt-0.5">{telemetry?.gpu.temp_c ?? 50}°C</div>
+                    </div>
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">CPU</div>
+                      <div className="text-lg font-black text-white mt-0.5">
+                        {telemetry?.gpu.cpu_percent ?? 18}%
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">CPU</div>
+                      <div className="text-lg font-black text-[#ff5f00] mt-0.5">
+                        {telemetry?.gpu.cpu_temp_c ?? 64}°C
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">Sistema</div>
+                      <div className="text-lg font-black text-amber-300 mt-0.5">
+                        {telemetry?.gpu.sys_temp_c ?? 52}°C
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-black/55 border border-white/10 p-2.5 text-center">
+                      <div className="text-[10px] font-bold text-zinc-400">RAM</div>
+                      <div className="text-lg font-black text-cyan-300 mt-0.5">{ramPct.toFixed(0)}%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

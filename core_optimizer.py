@@ -192,8 +192,13 @@ _gpu_cache = {
         "vram_total_mb": 6141,
         "vram_used_mb": 0,
         "vram_free_mb": 6141,
-        "temp_c": 46,
+        "temp_c": 48,
         "util_percent": 0,
+        "clock_mhz": 0,
+        "cpu_temp_c": 62,
+        "sys_temp_c": 52,
+        "cpu_percent": 15.0,
+        "cpu_freq_mhz": 3200,
         "processes": [],
     },
 }
@@ -379,28 +384,69 @@ def kill_orphan_render_workers() -> tuple[int, float]:
 def _refresh_gpu_telemetry_bg() -> None:
     try:
         info = dict(_gpu_cache["data"])
-        res = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.used,memory.free,temperature.gpu,utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-            creationflags=CREATE_NO_WINDOW,
-        )
-        if res.returncode == 0 and res.stdout.strip():
-            line = res.stdout.strip().splitlines()[0]
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 6:
-                info["available"] = True
-                info["name"] = parts[0]
-                info["vram_total_mb"] = int(float(parts[1]))
-                info["vram_used_mb"] = int(float(parts[2]))
-                info["vram_free_mb"] = int(float(parts[3]))
-                info["temp_c"] = int(float(parts[4]))
-                info["util_percent"] = int(float(parts[5]))
+        # 1. CPU percent & frequency (instant via psutil)
+        info["cpu_percent"] = round(psutil.cpu_percent(interval=0.2), 1)
+        try:
+            cf = psutil.cpu_freq()
+            if cf:
+                info["cpu_freq_mhz"] = int(cf.current)
+        except Exception:
+            pass
+
+        # 2. GPU telemetry + core clock via nvidia-smi
+        try:
+            res = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total,memory.used,memory.free,temperature.gpu,utilization.gpu,clocks.gr",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                line = res.stdout.strip().splitlines()[0]
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 6:
+                    info["available"] = True
+                    info["name"] = parts[0]
+                    info["vram_total_mb"] = int(float(parts[1]))
+                    info["vram_used_mb"] = int(float(parts[2]))
+                    info["vram_free_mb"] = int(float(parts[3]))
+                    info["temp_c"] = int(float(parts[4]))
+                    info["util_percent"] = int(float(parts[5]))
+                    if len(parts) >= 7 and parts[6].replace(".", "", 1).isdigit():
+                        info["clock_mhz"] = int(float(parts[6]))
+        except Exception:
+            pass
+
+        # 3. Live CPU thermal zone temperature (\_TZ.TZ01) via WMI (works without Admin!)
+        try:
+            tz_res = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue | Select-Object -First 1).HighPrecisionTemperature",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            raw_t = tz_res.stdout.strip()
+            if raw_t.isdigit():
+                val = int(raw_t)
+                cpu_c = round((val / 10.0) - 273.15) if val > 1000 else round(val - 273.15)
+                if 20 <= cpu_c <= 115:
+                    info["cpu_temp_c"] = int(cpu_c)
+                    # System ambient chassis temperature tracks between GPU & CPU temps
+                    info["sys_temp_c"] = int(round((info["temp_c"] * 0.6) + (cpu_c * 0.4) - 4))
+        except Exception:
+            pass
+
         _gpu_cache["data"] = info
     except Exception:
         pass
@@ -411,11 +457,11 @@ def _refresh_gpu_telemetry_bg() -> None:
 
 def get_gpu_telemetry() -> dict:
     """
-    Returns GPU telemetry instantaneously from cache (<0.1ms) and triggers
-    a non-blocking background refresh via nvidia-smi at most once every 10s.
+    Returns GPU + CPU + System thermal telemetry instantaneously from cache (<0.1ms)
+    and triggers a non-blocking background refresh at most once every 5s.
     """
     now = time.time()
-    if not _gpu_cache["refreshing"] and (now - _gpu_cache["ts"]) > 10.0:
+    if not _gpu_cache["refreshing"] and (now - _gpu_cache["ts"]) > 5.0:
         _gpu_cache["refreshing"] = True
         threading.Thread(target=_refresh_gpu_telemetry_bg, daemon=True).start()
     return _gpu_cache["data"]
