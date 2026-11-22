@@ -1,5 +1,5 @@
 {
-  "version": "2.1.1",
+  "version": "2.1.2",
   "released_at": "2026-11-22",
-  "notes": "Corrigido DarkBooster.exe e inicializadores para funcionar em qualquer PC/usuario sem caminho fixo + Instalador Automatico (Instalar_e_Abrir_DarkBooster.bat)."
+  "notes": "Removido launcher .exe nao-assinado e .vbs (zero falso positivo no Windows Defender) + novo Abrir_DarkBooster.bat e Instalar_e_Abrir_DarkBooster.bat."
 }
