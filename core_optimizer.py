@@ -1081,6 +1081,14 @@ def set_power_thermal_mode(mode_id: str) -> tuple[bool, str]:
     guid, msg = modes[mode_id]
     try:
         subprocess.run(["powercfg", "/setactive", guid], capture_output=True, timeout=3, creationflags=CREATE_NO_WINDOW)
+        # Always allow CPU to idle down to 5% when not under load so Ryzen mobile stays cool
+        subprocess.run(
+            ["powercfg", "/setacvalueindex", "SCHEME_CURRENT", "SUB_PROCESSOR", "PROCTHROTTLEMIN", "5"],
+            capture_output=True,
+            timeout=2,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        subprocess.run(["powercfg", "/setactive", "SCHEME_CURRENT"], capture_output=True, timeout=2, creationflags=CREATE_NO_WINDOW)
         _battery_health_cache["active_mode"] = mode_id
         return True, msg
     except Exception as e:
